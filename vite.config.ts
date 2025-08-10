@@ -4,6 +4,6 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  // Set base for GitHub Pages or sub-path hosting
-  base: '/pixaliser/',
+  // Correct base path for GitHub Pages (repo name)
+  base: '/pixel-fixer/',
 })
