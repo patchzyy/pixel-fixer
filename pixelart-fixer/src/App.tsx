@@ -410,9 +410,36 @@ export default function PixelArtFixer() {
     return img;
   }, [build, posterizeBits, activePaletteRGB]);
 
+  // Build a full-size pixelated overlay (fills margins by extending edge colors) so original is not visible underneath
+  const fullPixelated: ImageData | null = useMemo(() => {
+    if (!processedBase || !imgData || !build) return null;
+    const { width: fullW, height: fullH } = imgData;
+    const { x0, y0, wOut, hOut } = build.crop;
+    const out = new ImageData(fullW, fullH);
+    const baseData = processedBase.data;
+    const outData = out.data;
+    for (let y = 0; y < fullH; y++) {
+      let localY = y - y0;
+      if (localY < 0) localY = 0; else if (localY >= hOut * sY) localY = hOut * sY - 1;
+      const by = Math.floor(localY / sY);
+      for (let x = 0; x < fullW; x++) {
+        let localX = x - x0;
+        if (localX < 0) localX = 0; else if (localX >= wOut * sX) localX = wOut * sX - 1;
+        const bx = Math.floor(localX / sX);
+        const bi = (by * wOut + bx) * 4;
+        const oi = (y * fullW + x) * 4;
+        outData[oi] = baseData[bi];
+        outData[oi + 1] = baseData[bi + 1];
+        outData[oi + 2] = baseData[bi + 2];
+        outData[oi + 3] = 255; // opaque
+      }
+    }
+    return out;
+  }, [processedBase, imgData, build, sX, sY]);
+
   // Draw grid overlay on original and draw processed result scaled to original size for reveal
   useEffect(() => {
-    if (!imgEl || !build || !processedBase) return;
+    if (!imgEl || !build || !fullPixelated) return;
     const w = imgEl.naturalWidth;
     const h = imgEl.naturalHeight;
 
@@ -425,19 +452,17 @@ export default function PixelArtFixer() {
     }
 
     if (afterCanvasRef.current) {
-      const targetW = build.crop.wOut * sX;
-      const targetH = build.crop.hOut * sY;
       const canvas = afterCanvasRef.current;
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0,0,w,h);
       ctx.imageSmoothingEnabled = false;
       const off = document.createElement("canvas");
-      off.width = processedBase.width; off.height = processedBase.height;
-      off.getContext("2d")!.putImageData(processedBase,0,0);
-      ctx.drawImage(off, 0,0, processedBase.width, processedBase.height, build.crop.x0, build.crop.y0, targetW, targetH);
+      off.width = fullPixelated.width; off.height = fullPixelated.height;
+      off.getContext("2d")!.putImageData(fullPixelated,0,0);
+      ctx.drawImage(off, 0,0);
     }
-  }, [imgEl, build, processedBase, sX, sY, dX, dY, overlayGrid]);
+  }, [imgEl, build, fullPixelated, sX, sY, dX, dY, overlayGrid]);
 
   // Draw low-res base to its own preview canvas at a friendly scale
   useEffect(() => {
