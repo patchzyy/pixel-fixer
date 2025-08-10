@@ -104,7 +104,7 @@ function detectAxis(diff: Float64Array, maxS: number) {
   return best;
 }
 
-// Build the low-res base image by averaging blocks of size sX x sY starting at dX,dY
+// Build the low-res base image by averaging blocks of size sX x sY starting at dX, dY
 function rebuildBase(imgData: ImageData, sX: number, sY: number, dX: number, dY: number): BuildResult {
   const { width: w, height: h, data } = imgData;
   // Crop to full blocks
@@ -254,6 +254,16 @@ const FULL_PALETTE = [
   "#6d643f","#948c6b","#cdc59e",
   "#333941","#6d758d","#b3b9d1"
 ];
+// Free colors subset
+const FREE_COLORS = [
+  "#000000","#3c3c3c","#787878","#d2d2d2","#ffffff",
+  "#600018","#ed1c24","#ff7f27","#f6aa09","#f9dd3b","#fffabc",
+  "#0eb968","#13e67b","#87ff5e","#0c816e","#10aea6","#13e1be",
+  "#28509e","#4093e4","#60f7f2","#6b50f6","#99b1fb",
+  "#780c99","#aa38b9","#e09ff9","#cb007a","#ec1f80","#f38da9",
+  "#684634","#95682a","#f8b277"
+];
+const FREE_COLOR_SET = new Set(FREE_COLORS);
 
 function hexToRGB(hex: string) {
   const h = hex.replace('#','');
@@ -307,7 +317,8 @@ export default function PixelArtFixer() {
   const toggleColor = (idx: number) => {
     setEnabledColors(prev => prev.map((v,i)=> i===idx ? !v : v));
   };
-  const enableAll = () => setEnabledColors(FULL_PALETTE.map(() => true));
+  const enableAllColors = () => setEnabledColors(FULL_PALETTE.map(() => true));
+  const applyFreeColors = () => setEnabledColors(FULL_PALETTE.map(c => FREE_COLOR_SET.has(c)));
   const disableAll = () => setEnabledColors(FULL_PALETTE.map(() => false));
 
   const activePaletteRGB = useMemo(() => {
@@ -583,8 +594,9 @@ export default function PixelArtFixer() {
                     <input type="checkbox" className="accent-blue-600" checked={usePalette} onChange={e=>setUsePalette(e.target.checked)} />
                     <span className="text-zinc-300">Use palette</span>
                   </label>
-                  <button onClick={enableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700">All</button>
-                  <button onClick={disableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700">None</button>
+                  <button onClick={applyFreeColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable only free colors">Only free colors</button>
+                  <button onClick={enableAllColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable all colors">Use all colors</button>
+                  <button onClick={disableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Disable all colors">None</button>
                 </div>
                 <div className="grid grid-cols-8 gap-2">
                   {FULL_PALETTE.map((hex, i) => {
@@ -638,11 +650,6 @@ export default function PixelArtFixer() {
                         imageRendering: "pixelated" as any,
                         clipPath: `inset(0 ${100 - reveal}% 0 0)` // reveal from left to right
                       }}
-                    />
-                    {/* Reveal divider line */}
-                    <div
-                      className="absolute top-0 bottom-0 w-px bg-cyan-300 shadow-[0_0_4px_#22d3ee]"
-                      style={{ left: `calc(${reveal}% - 0.5px)` }}
                     />
                   </div>
                 </div>
