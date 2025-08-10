@@ -234,6 +234,54 @@ function downloadImageDataPNG(img: ImageData, filename: string) {
   downloadCanvasPNG(c, filename);
 }
 
+// Fixed color palette (ordered)
+const FULL_PALETTE = [
+  "#000000","#3c3c3c","#787878","#aaaaaa","#d2d2d2","#ffffff",
+  "#600018","#a50e1e","#ed1c24","#fa8072",
+  "#e45c1a","#ff7f27","#f6aa09","#f9dd3b","#fffabc",
+  "#9c8431","#c5ad31","#e8d45f",
+  "#4a6b3a","#5a944a","#84c573","#0eb968","#13e67b","#87ff5e",
+  "#0c816e","#10aea6","#13e1be","#0f799f","#60f7f2","#bbfaf2",
+  "#28509e","#4093e4","#7dc7ff",
+  "#4d31b8","#6b50f6","#99b1fb",
+  "#4a4284","#7a71c4","#b5aef1",
+  "#780c99","#aa38b9","#e09ff9",
+  "#cb007a","#ec1f80","#f38da9",
+  "#9b5249","#d18078","#fab6a4",
+  "#684634","#95682a","#dba463",
+  "#7b6352","#9c846b","#d6b594",
+  "#d18051","#f8b277","#ffc5a5",
+  "#6d643f","#948c6b","#cdc59e",
+  "#333941","#6d758d","#b3b9d1"
+];
+
+function hexToRGB(hex: string) {
+  const h = hex.replace('#','');
+  const r = parseInt(h.substring(0,2),16);
+  const g = parseInt(h.substring(2,4),16);
+  const b = parseInt(h.substring(4,6),16);
+  return { r, g, b };
+}
+
+function quantizeToPalette(img: ImageData, palette: {r:number;g:number;b:number;}[]) {
+  if (!palette.length) return img;
+  const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+  const data = out.data;
+  for (let i = 0; i < data.length; i += 4) {
+    let br = data[i], bg = data[i+1], bb = data[i+2];
+    let bestIdx = 0; let bestDist = Infinity;
+    for (let p = 0; p < palette.length; p++) {
+      const pr = palette[p].r, pg = palette[p].g, pb = palette[p].b;
+      const dr = br - pr; const dg = bg - pg; const db = bb - pb;
+      const dist = dr*dr + dg*dg + db*db;
+      if (dist < bestDist) { bestDist = dist; bestIdx = p; }
+    }
+    const best = palette[bestIdx];
+    data[i] = best.r; data[i+1] = best.g; data[i+2] = best.b; // alpha unchanged
+  }
+  return out;
+}
+
 export default function PixelArtFixer() {
   const [imageURL, setImageURL] = useState<string | null>(null);
   const [imgEl, setImgEl] = useState<HTMLImageElement | null>(null);
@@ -251,6 +299,21 @@ export default function PixelArtFixer() {
   const [posterizeBits, setPosterizeBits] = useState(8);
   const [overlayGrid, setOverlayGrid] = useState(true);
   const [reveal, setReveal] = useState(50); // percent for before-after reveal
+
+  // Palette state
+  const [usePalette, setUsePalette] = useState(true);
+  const [enabledColors, setEnabledColors] = useState<boolean[]>(() => FULL_PALETTE.map(() => true));
+
+  const toggleColor = (idx: number) => {
+    setEnabledColors(prev => prev.map((v,i)=> i===idx ? !v : v));
+  };
+  const enableAll = () => setEnabledColors(FULL_PALETTE.map(() => true));
+  const disableAll = () => setEnabledColors(FULL_PALETTE.map(() => false));
+
+  const activePaletteRGB = useMemo(() => {
+    if (!usePalette) return [] as {r:number;g:number;b:number;}[];
+    return FULL_PALETTE.filter((_,i)=>enabledColors[i]).map(hexToRGB);
+  }, [usePalette, enabledColors]);
 
   const originalRef = useRef<HTMLDivElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null); // grid overlay on original
@@ -326,63 +389,55 @@ export default function PixelArtFixer() {
     setBuild(built);
   }, [imgData, sX, sY, dX, dY]);
 
+  // Memo processed base (posterize + palette)
+  const processedBase: ImageData | null = useMemo(() => {
+    if (!build) return null;
+    let img = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData;
+    if (activePaletteRGB.length) {
+      img = quantizeToPalette(img, activePaletteRGB);
+    }
+    return img;
+  }, [build, posterizeBits, activePaletteRGB]);
+
   // Draw grid overlay on original and draw processed result scaled to original size for reveal
   useEffect(() => {
-    if (!imgEl || !build) return;
+    if (!imgEl || !build || !processedBase) return;
     const w = imgEl.naturalWidth;
     const h = imgEl.naturalHeight;
 
-    // Grid overlay
     if (overlayCanvasRef.current) {
       if (overlayGrid) drawGridOverlay(overlayCanvasRef.current, w, h, sX, sY, dX, dY);
       else {
         const c = overlayCanvasRef.current;
-        c.width = w;
-        c.height = h;
-        const ctx = c.getContext("2d")!;
-        ctx.clearRect(0, 0, w, h);
+        c.width = w; c.height = h; c.getContext("2d")!.clearRect(0,0,w,h);
       }
     }
 
-    // After canvas - draw low-res base scaled up to full image size for fair compare
     if (afterCanvasRef.current) {
-      // Posterize if needed
-      const toDraw = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData;
-      const targetW = build.crop.wOut * sX; // ideal exact scaled size in the cropped region
+      const targetW = build.crop.wOut * sX;
       const targetH = build.crop.hOut * sY;
-      // We want an overlay that matches original dimensions. We will center the cropped area in place and leave margins transparent if needed.
-      // For simplicity we will draw on a full-size canvas and place the scaled area at the detected offset.
       const canvas = afterCanvasRef.current;
-      canvas.width = imgEl.naturalWidth;
-      canvas.height = imgEl.naturalHeight;
+      canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext("2d")!;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0,0,w,h);
       ctx.imageSmoothingEnabled = false;
-
-      // Draw scaled at the detected crop region
       const off = document.createElement("canvas");
-      off.width = toDraw.width;
-      off.height = toDraw.height;
-      const octx = off.getContext("2d")!;
-      octx.putImageData(toDraw, 0, 0);
-
-      // Draw to cropped area at integer scale
-      ctx.drawImage(off, 0, 0, toDraw.width, toDraw.height, build.crop.x0, build.crop.y0, targetW, targetH);
+      off.width = processedBase.width; off.height = processedBase.height;
+      off.getContext("2d")!.putImageData(processedBase,0,0);
+      ctx.drawImage(off, 0,0, processedBase.width, processedBase.height, build.crop.x0, build.crop.y0, targetW, targetH);
     }
-  }, [imgEl, build, sX, sY, dX, dY, overlayGrid, posterizeBits]);
+  }, [imgEl, build, processedBase, sX, sY, dX, dY, overlayGrid]);
 
   // Draw low-res base to its own preview canvas at a friendly scale
   useEffect(() => {
-    if (!build || !baseCanvasRef.current) return;
-    const previewScale = Math.max(2, Math.floor(512 / Math.max(build.baseImageData.width, build.baseImageData.height)));
-    const toDraw = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData;
-    drawToCanvas(baseCanvasRef.current, toDraw, previewScale);
-  }, [build, posterizeBits]);
+    if (!processedBase || !baseCanvasRef.current) return;
+    const previewScale = Math.max(2, Math.floor(512 / Math.max(processedBase.width, processedBase.height)));
+    drawToCanvas(baseCanvasRef.current, processedBase, previewScale);
+  }, [processedBase]);
 
   const handleExportBase = () => {
-    if (!build) return;
-    const toDraw = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData;
-    downloadImageDataPNG(toDraw, `pixelart_base_${toDraw.width}x${toDraw.height}.png`);
+    if (!processedBase) return;
+    downloadImageDataPNG(processedBase, `pixelart_base_${processedBase.width}x${processedBase.height}.png`);
   };
 
   const handleExportUpscaled = () => {
@@ -434,7 +489,7 @@ export default function PixelArtFixer() {
         {imageURL && imgEl && imgData && (
           <>
             {/* Controls */}
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
                 <h2 className="font-medium mb-3">Detection</h2>
                 <div className="grid sm:grid-cols-2 gap-3 text-sm">
@@ -520,6 +575,35 @@ export default function PixelArtFixer() {
                   </div>
                 </div>
               </div>
+
+              <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
+                <h2 className="font-medium mb-3">Palette</h2>
+                <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                    <input type="checkbox" className="accent-blue-600" checked={usePalette} onChange={e=>setUsePalette(e.target.checked)} />
+                    <span className="text-zinc-300">Use palette</span>
+                  </label>
+                  <button onClick={enableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700">All</button>
+                  <button onClick={disableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700">None</button>
+                </div>
+                <div className="grid grid-cols-8 gap-2">
+                  {FULL_PALETTE.map((hex, i) => {
+                    const enabled = enabledColors[i];
+                    return (
+                      <button
+                        key={i}
+                        onClick={()=>toggleColor(i)}
+                        className={`w-6 h-6 rounded border border-zinc-700 relative group ${enabled ? '' : 'opacity-30 grayscale'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                        style={{ backgroundColor: hex }}
+                        title={hex + (enabled ? '' : ' (disabled)')}
+                      >
+                        {!enabled && <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-zinc-200">×</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-[10px] leading-snug text-zinc-400">Click colors to enable/disable them. Only enabled colors are used when building the pixelated version.</p>
+              </div>
             </div>
 
             {/* Before-after viewer */}
@@ -555,6 +639,11 @@ export default function PixelArtFixer() {
                         clipPath: `inset(0 ${100 - reveal}% 0 0)` // reveal from left to right
                       }}
                     />
+                    {/* Reveal divider line */}
+                    <div
+                      className="absolute top-0 bottom-0 w-px bg-cyan-300 shadow-[0_0_4px_#22d3ee]"
+                      style={{ left: `calc(${reveal}% - 0.5px)` }}
+                    />
                   </div>
                 </div>
 
@@ -584,6 +673,7 @@ export default function PixelArtFixer() {
                 </div>
                 <p className="text-xs text-zinc-400">
                   The base PNG is the clean pixel-art at 1x scale. The upscaled overlay PNG matches the original dimensions and uses nearest-neighbor.
+                  {usePalette && ` Palette constraint (${activePaletteRGB.length} colors enabled).`}
                 </p>
               </div>
             </div>
