@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FULL_PALETTE, FREE_COLOR_SET, hexToRGB } from './palette';
 import type { BuildResult } from './imageUtils';
-import { rebuildBase, posterize, drawToCanvas, downloadCanvasPNG, downloadImageDataPNG, quantizeToPalette } from './imageUtils';
+import { rebuildBase, posterize, drawToCanvas, downloadCanvasPNG, downloadImageDataPNG, quantizeToPaletteAdvancedFast } from './imageUtils';
 
 // Utility to adjust saturation and contrast (percent values where 100 = unchanged)
 function applySaturationContrast(img: ImageData, saturationPct: number, contrastPct: number){
@@ -48,11 +48,31 @@ export default function PixelArtCreator(){
   const activePaletteRGB = useMemo(()=>{ if(!usePalette) return [] as {r:number;g:number;b:number;}[]; return FULL_PALETTE.filter((_,i)=>enabledColors[i]).map(hexToRGB); },[usePalette, enabledColors]);
   const afterCanvasRef = useRef<HTMLCanvasElement>(null); const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const [build, setBuild] = useState<BuildResult | null>(null);
+  // Dithering controls (now in a dedicated tab)
+  const [dither, setDither] = useState<'none'|'floyd-steinberg'|'ordered4'|'ordered8'|'atkinson'>('floyd-steinberg');
+  const [distance, setDistance] = useState<'rgb'|'oklab'>('oklab');
+  const [orderedStrength, setOrderedStrength] = useState(50); // 0..100
+  const [serpentine, setSerpentine] = useState(true);
   const onFile = (file:File) => { const url = URL.createObjectURL(file); setImageURL(url); };
   useEffect(()=>{ if(!imageURL) return; const img=new Image(); img.onload=()=>setImgEl(img); img.onerror=()=>{ alert('Failed to load image'); setImageURL(null); }; img.src=imageURL; return ()=>{ URL.revokeObjectURL(imageURL); }; },[imageURL]);
   useEffect(()=>{ if(!imgEl) return; const c=document.createElement('canvas'); c.width=imgEl.naturalWidth; c.height=imgEl.naturalHeight; const ctx=c.getContext('2d')!; ctx.imageSmoothingEnabled=false; ctx.drawImage(imgEl,0,0); const data=ctx.getImageData(0,0,c.width,c.height); setImgData(data); setBuild(null); },[imgEl]);
   useEffect(()=>{ if(!imgData) return; const p=Math.max(1,pixelSize); const built=rebuildBase(imgData,p,p,0,0); setBuild(built); },[imgData,pixelSize]);
-  const processedBase = useMemo(()=>{ if(!build) return null; let img = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData; img = applySaturationContrast(img, saturation, contrast); if(activePaletteRGB.length) img = quantizeToPalette(img, activePaletteRGB); return img; },[build,posterizeBits,activePaletteRGB,saturation,contrast]);
+  // Async fast path with workers
+  const [processedBase, setProcessedBase] = useState<ImageData | null>(null);
+  useEffect(()=>{
+    let alive = true; (async ()=>{
+      if(!build){ setProcessedBase(null); return; }
+      let img = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData;
+      img = applySaturationContrast(img, saturation, contrast);
+      if(activePaletteRGB.length){
+        const opts = { dithering: dither, distance, orderedStrength: orderedStrength/100, serpentine } as const;
+        // Use workers for all modes; it's faster and non-blocking
+        img = await quantizeToPaletteAdvancedFast(img, activePaletteRGB, opts);
+      }
+      if(alive) setProcessedBase(img);
+    })();
+    return ()=>{ alive = false; };
+  }, [build, posterizeBits, activePaletteRGB, saturation, contrast, dither, distance, orderedStrength, serpentine]);
   const fullPixelated = useMemo(()=>{ if(!processedBase || !imgData || !build) return null; const { width: fullW, height: fullH } = imgData; const { wOut, hOut } = build.crop; const out=new ImageData(fullW, fullH); const baseData=processedBase.data; const outData=out.data; for(let y=0;y<fullH;y++){ const by=Math.min(hOut-1, Math.floor(y / pixelSize)); for(let x=0;x<fullW;x++){ const bx=Math.min(wOut-1, Math.floor(x / pixelSize)); const bi=(by*wOut+bx)*4; const oi=(y*fullW+x)*4; outData[oi]=baseData[bi]; outData[oi+1]=baseData[bi+1]; outData[oi+2]=baseData[bi+2]; outData[oi+3]=255; }} return out; },[processedBase,imgData,build,pixelSize]);
   useEffect(()=>{ if(!imgEl || !fullPixelated) return; const w=imgEl.naturalWidth; const h=imgEl.naturalHeight; if(afterCanvasRef.current){ const canvas=afterCanvasRef.current; canvas.width=w; canvas.height=h; const ctx=canvas.getContext('2d')!; ctx.clearRect(0,0,w,h); ctx.imageSmoothingEnabled=false; const off=document.createElement('canvas'); off.width=fullPixelated.width; off.height=fullPixelated.height; off.getContext('2d')!.putImageData(fullPixelated,0,0); ctx.drawImage(off,0,0); } },[imgEl,fullPixelated]);
   useEffect(()=>{ if(!processedBase || !baseCanvasRef.current) return; 
@@ -136,6 +156,45 @@ export default function PixelArtCreator(){
                 ); })}
               </div>
               <p className="mt-3 text-[10px] leading-snug text-zinc-400">Toggle colors to constrain quantization. Only enabled colors are used.</p>
+            </div>
+            {/* Dithering panel */}
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
+              <h2 className="font-medium mb-3">Dithering</h2>
+              <div className="space-y-4 text-sm">
+                <div>
+                  <label className="text-zinc-400 block mb-1">Dithering method</label>
+                  <select value={dither} onChange={e=>setDither(e.target.value as any)} className="w-full bg-zinc-800 rounded px-2 py-1">
+                    <option value="floyd-steinberg">Floyd–Steinberg</option>
+                    <option value="atkinson">Atkinson</option>
+                    <option value="ordered4">Ordered 4×4</option>
+                    <option value="ordered8">Ordered 8×8</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-zinc-400 block mb-1">Perceptual distance</label>
+                  <select value={distance} onChange={e=>setDistance(e.target.value as any)} className="w-full bg-zinc-800 rounded px-2 py-1">
+                    <option value="oklab">OKLab (recommended)</option>
+                    <option value="rgb">RGB</option>
+                  </select>
+                </div>
+                {(dither==='ordered4'||dither==='ordered8') && (
+                  <div>
+                    <label className="text-zinc-400 block">Ordered strength</label>
+                    <input type="range" min={0} max={100} value={orderedStrength} onChange={e=>setOrderedStrength(parseInt(e.target.value))} className="w-full"/>
+                    <div className="text-zinc-400">{orderedStrength}%</div>
+                  </div>
+                )}
+                {(dither==='floyd-steinberg'||dither==='atkinson') && (
+                  <div className="flex items-center gap-2 text-xs pt-2 border-t border-zinc-800/60">
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                      <input type="checkbox" className="accent-blue-600" checked={serpentine} onChange={e=>setSerpentine(e.target.checked)}/>
+                      <span className="text-zinc-300">Serpentine scan</span>
+                    </label>
+                  </div>
+                )}
+                <p className="text-[10px] leading-snug text-zinc-400">Dithering and quantization are applied to the palette step. Floyd–Steinberg is recommended for smooth gradients; Ordered for crisp pixel patterns.</p>
+              </div>
             </div>
             {/* Export panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 grid content-start gap-3">
