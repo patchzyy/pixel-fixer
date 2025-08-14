@@ -50,6 +50,8 @@ export default function PixelArtCreator(){
   const [build, setBuild] = useState<BuildResult | null>(null);
    // Advanced settings (dithering and more)
   const [dither, setDither] = useState<'none'|'floyd-steinberg'|'ordered4'|'ordered8'|'atkinson'>('floyd-steinberg');
+  // Control how strong the dithering is (0 = off, 100 = full)
+  const [ditherAmount, setDitherAmount] = useState(100);
   // Artwork/Photo mode
   const [mode, setMode] = useState<'artwork'|'photo'>('photo');
   // Handler for mode change
@@ -89,7 +91,7 @@ export default function PixelArtCreator(){
       // Optional pre-quantization sharpening
       if(sharpenAmt>0){ img = unsharpMask(img, sharpenRadius, sharpenAmt/100*2); }
       if(activePaletteRGB.length){
-        const opts = { dithering: dither, distance, orderedStrength: orderedStrength/100, serpentine } as const;
+        const opts = { dithering: dither, distance, orderedStrength: orderedStrength/100, serpentine, ditherAmount: Math.max(0, Math.min(1, ditherAmount/100)) } as const;
         // Use workers for all modes; it's faster and non-blocking
         img = await quantizeToPaletteAdvancedFast(img, activePaletteRGB, opts);
       }
@@ -98,7 +100,7 @@ export default function PixelArtCreator(){
       if(alive) setProcessedBase(img);
     })();
     return ()=>{ alive = false; };
-  }, [build, posterizeBits, activePaletteRGB, saturation, contrast, dither, distance, orderedStrength, serpentine, gamma, sharpenAmt, sharpenRadius, noiseAmt]);
+  }, [build, posterizeBits, activePaletteRGB, saturation, contrast, dither, distance, orderedStrength, serpentine, ditherAmount, gamma, sharpenAmt, sharpenRadius, noiseAmt]);
   const fullPixelated = useMemo(()=>{ if(!processedBase || !imgData || !build) return null; const { width: fullW, height: fullH } = imgData; const { wOut, hOut } = build.crop; const out=new ImageData(fullW, fullH); const baseData=processedBase.data; const outData=out.data; for(let y=0;y<fullH;y++){ const by=Math.min(hOut-1, Math.floor(y / pixelSize)); for(let x=0;x<fullW;x++){ const bx=Math.min(wOut-1, Math.floor(x / pixelSize)); const bi=(by*wOut+bx)*4; const oi=(y*fullW+x)*4; outData[oi]=baseData[bi]; outData[oi+1]=baseData[bi+1]; outData[oi+2]=baseData[bi+2]; outData[oi+3]=255; }} return out; },[processedBase,imgData,build,pixelSize]);
   useEffect(()=>{ if(!imgEl || !fullPixelated) return; const w=imgEl.naturalWidth; const h=imgEl.naturalHeight; if(afterCanvasRef.current){ const canvas=afterCanvasRef.current; canvas.width=w; canvas.height=h; const ctx=canvas.getContext('2d')!; ctx.clearRect(0,0,w,h); ctx.imageSmoothingEnabled=false; const off=document.createElement('canvas'); off.width=fullPixelated.width; off.height=fullPixelated.height; off.getContext('2d')!.putImageData(fullPixelated,0,0); ctx.drawImage(off,0,0); } },[imgEl,fullPixelated]);
   useEffect(()=>{ if(!processedBase || !baseCanvasRef.current) return; 
@@ -248,6 +250,11 @@ export default function PixelArtCreator(){
                       <option value="ordered8">Ordered 8×8</option>
                       <option value="none">None</option>
                     </select>
+                  </div>
+                  <div>
+                    <label className="text-zinc-400 block">Dither amount</label>
+                    <input type="range" min={0} max={100} value={ditherAmount} onChange={e=>setDitherAmount(parseInt(e.target.value))} className="w-full"/>
+                    <div className="text-zinc-400">{ditherAmount}%</div>
                   </div>
                   <div>
                     <label className="text-zinc-400 block mb-1">Perceptual distance</label>

@@ -204,12 +204,13 @@ export interface QuantizeAdvancedOptions{
   dithering?: DitherMode;
   orderedStrength?: number; // 0..1 applies to ordered modes
   serpentine?: boolean;     // for error-diffusion
+  ditherAmount?: number;    // 0..1 multiplier controlling overall dithering strength
 }
 
 // Exported helper: palette-aware quantization with optional dithering
 export function quantizeToPaletteAdvanced(img: ImageData, palette:{r:number;g:number;b:number;}[], opts: QuantizeAdvancedOptions = {}){
   if(!palette.length) return img;
-  const { distance='oklab', dithering='none', orderedStrength=0.5, serpentine=true } = opts;
+  const { distance='oklab', dithering='none', orderedStrength=0.5, serpentine=true, ditherAmount=1 } = opts;
   if(dithering==='none'){
     const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
     const d = out.data;
@@ -242,7 +243,9 @@ export function quantizeToPaletteAdvanced(img: ImageData, palette:{r:number;g:nu
     for(let y=0;y<h;y++){
       for(let x=0;x<w;x++){
         const i=(y*w+x)*4; const t=(M[y%size][x%size]/denom - 0.5) * 255 * (orderedStrength ?? 0.5);
-        const r = clamp255(d[i] + t), g = clamp255(d[i+1] + t), b = clamp255(d[i+2] + t);
+        // Apply global ditherAmount multiplier to the ordered dither strength
+        const tScaled = t * ditherAmount;
+        const r = clamp255(d[i] + tScaled), g = clamp255(d[i+1] + tScaled), b = clamp255(d[i+2] + tScaled);
         const c = nearestPaletteColor(r,g,b,palette,distance);
         d[i]=c.r; d[i+1]=c.g; d[i+2]=c.b;
       }
@@ -274,8 +277,10 @@ export function quantizeToPaletteAdvanced(img: ImageData, palette:{r:number;g:nu
       const c = nearestPaletteColor(r,g,b,palette,distance);
       od[i]=c.r; od[i+1]=c.g; od[i+2]=c.b; od[i+3]=255;
       const er = r - c.r, eg = g - c.g, eb = b - c.b;
+      // Scale error diffusion by ditherAmount (0 = no diffusion, 1 = normal)
+      const diffusionScale = ditherAmount;
       for(const [dx,dy,f] of weights){
-        const nx = x + dx*dir; const ny = y + dy; if(nx<0||nx>=w||ny<0||ny>=h) continue; const n = (ny*w+nx)*3; buf[n]   += er*f; buf[n+1] += eg*f; buf[n+2] += eb*f; }
+        const nx = x + dx*dir; const ny = y + dy; if(nx<0||nx>=w||ny<0||ny>=h) continue; const n = (ny*w+nx)*3; buf[n]   += er*(f*diffusionScale); buf[n+1] += eg*(f*diffusionScale); buf[n+2] += eb*(f*diffusionScale); }
     }
   }
   return out;
@@ -285,7 +290,7 @@ export function quantizeToPaletteAdvanced(img: ImageData, palette:{r:number;g:nu
 // Dynamically import pool to avoid including in SSR and let Vite split code
 export async function quantizeToPaletteAdvancedFast(img: ImageData, palette:{r:number;g:number;b:number;}[], opts: QuantizeAdvancedOptions = {}){
   if(!palette.length) return img;
-  const { distance='oklab', dithering='none', orderedStrength=0.5, serpentine=true } = opts;
+  const { distance='oklab', dithering='none', orderedStrength=0.5, serpentine=true, ditherAmount=1 } = opts;
   const { QuantPool, paletteToFlat } = await import('../workers/pool.ts');
   const w = img.width, h = img.height;
   const pool = new QuantPool();
@@ -301,7 +306,7 @@ export async function quantizeToPaletteAdvancedFast(img: ImageData, palette:{r:n
     for(let s=0;s<strips;s++){
       const yStart = s*rowsPer; if(yStart>=h) break; const yEnd = Math.min(h, yStart+rowsPer);
       const slice = src.slice(yStart*w*4, yEnd*w*4);
-      const job = pool.submit({ width:w, height:h, src: slice.buffer, palette: flat, mode: dithering, distance, orderedStrength, serpentine, yStart, yEnd, cacheBits });
+      const job = pool.submit({ width:w, height:h, src: slice.buffer, palette: flat, mode: dithering, distance, orderedStrength, serpentine, ditherAmount, yStart, yEnd, cacheBits });
       jobs.push(job.then((res)=>{ const strip = new Uint8ClampedArray(res.out); out.set(strip, yStart*w*4); }));
     }
     await Promise.all(jobs);
@@ -309,7 +314,7 @@ export async function quantizeToPaletteAdvancedFast(img: ImageData, palette:{r:n
     return new ImageData(out, w, h);
   } else {
     // Single worker full-frame diffusion
-    const job = await pool.submit({ width:w, height:h, src: src.buffer, palette: flat, mode: dithering, distance, orderedStrength, serpentine, cacheBits });
+    const job = await pool.submit({ width:w, height:h, src: src.buffer, palette: flat, mode: dithering, distance, orderedStrength, serpentine, ditherAmount, cacheBits });
     pool.destroy();
     return new ImageData(new Uint8ClampedArray(job.out), w, h);
   }

@@ -18,6 +18,7 @@ export interface QuantizeJob {
   distance: DistanceMode;
   orderedStrength: number; // 0..1
   serpentine: boolean;
+  ditherAmount?: number; // 0..1 multiplier for overall dithering strength
   // For parallel modes we can process a strip to increase throughput
   yStart?: number;
   yEnd?: number; // exclusive
@@ -94,6 +95,7 @@ function nearestIdx(r:number,g:number,b:number, prep: ReturnType<typeof buildPal
 
 function doNoneOrOrdered(job: QuantizeJob){
   const { width:w, height:h, palette, distance, mode, orderedStrength, src } = job;
+  const ditherAmount = job.ditherAmount ?? 1;
   const y0 = job.yStart ?? 0; const y1 = job.yEnd ?? h;
   const srcArr = new Uint8ClampedArray(src);
   const outStrip = new Uint8ClampedArray((y1 - y0) * w * 4);
@@ -125,7 +127,8 @@ function doNoneOrOrdered(job: QuantizeJob){
   let r = srcArr[j], g = srcArr[j+1], b = srcArr[j+2];
       if(mode==='ordered4' || mode==='ordered8'){
         const t = ((M[y%size][x%size] / denom) - 0.5) * (strength);
-        r = clamp255(r + t); g = clamp255(g + t); b = clamp255(b + t);
+        const tScaled = t * ditherAmount; // apply global dither amount
+        r = clamp255(r + tScaled); g = clamp255(g + tScaled); b = clamp255(b + tScaled);
       }
       const idx = nearestIdx(r,g,b, prep, distance, lut);
       const o = ((y - y0)*w + x) * 4;
@@ -140,6 +143,7 @@ function doNoneOrOrdered(job: QuantizeJob){
 
 function doDiffusion(job: QuantizeJob){
   const { width:w, height:h, palette, distance, mode, serpentine, src } = job;
+  const ditherAmount = job.ditherAmount ?? 1;
   const srcArr = new Uint8ClampedArray(src);
   const out = new Uint8ClampedArray(w*h*4);
   const prep = buildPalettePrepared(palette, distance);
@@ -160,9 +164,11 @@ function doDiffusion(job: QuantizeJob){
       const pi = nearestIdx(r,g,b, prep, distance, lut);
       out[i] = prep.pr[pi]; out[i+1] = prep.pg[pi]; out[i+2] = prep.pb[pi]; out[i+3]=255;
       const er = r - prep.pr[pi]; const eg = g - prep.pg[pi]; const eb = b - prep.pb[pi];
+      // Scale diffusion by ditherAmount (0 = no diffusion, 1 = full strength)
+      const diffusionScale = ditherAmount;
       for(const [dx,dy,f] of weights){
         const nx = x + dx*dir; const ny = y + dy; if(nx<0||nx>=w||ny<0||ny>=h) continue;
-        const n = (ny*w + nx) * 3; buf[n]   += er*f; buf[n+1] += eg*f; buf[n+2] += eb*f;
+        const n = (ny*w + nx) * 3; buf[n]   += er*(f*diffusionScale); buf[n+1] += eg*(f*diffusionScale); buf[n+2] += eb*(f*diffusionScale);
       }
     }
   }
