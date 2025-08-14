@@ -69,6 +69,51 @@ export default function PixelArtCreator(){
   const [sharpenRadius, setSharpenRadius] = useState(1); // 1..6 (px)
   const [noiseAmt, setNoiseAmt] = useState(0); // 0..64
   const onFile = (file:File) => { const url = URL.createObjectURL(file); setImageURL(url); };
+
+  // Listen for paste (Ctrl+V) to accept images from clipboard when no image is loaded.
+  useEffect(() => {
+    const handlePaste = async (e: any) => {
+      try {
+        if (imageURL) return; // ignore paste if an image is already loaded
+        const clipboardData = e.clipboardData || (window as any).clipboardData;
+        if (clipboardData && clipboardData.items) {
+          for (let i = 0; i < clipboardData.items.length; i++) {
+            const item = clipboardData.items[i];
+            if (item && item.type && item.type.indexOf('image') === 0) {
+              const blob = item.getAsFile();
+              if (blob) {
+                onFile(blob);
+                e.preventDefault();
+                return;
+              }
+            }
+          }
+        }
+        // Fallback: try async clipboard API (may require permissions)
+        if (navigator.clipboard && (navigator.clipboard as any).read) {
+          try {
+            const items = await (navigator.clipboard as any).read();
+            for (const ci of items) {
+              for (const type of ci.types) {
+                if ((type as string).startsWith('image/')) {
+                  const blob = await ci.getType(type);
+                  onFile(new File([blob], 'pasted_image.' + (blob.type.split('/')[1] || 'png'), { type: blob.type }));
+                  return;
+                }
+              }
+            }
+          } catch (err) {
+            // ignore permission or read errors
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    window.addEventListener('paste', handlePaste as any);
+    return () => window.removeEventListener('paste', handlePaste as any);
+  }, [imageURL]);
+
   useEffect(()=>{ if(!imageURL) return; const img=new Image(); img.onload=()=>setImgEl(img); img.onerror=()=>{ alert('Failed to load image'); setImageURL(null); }; img.src=imageURL; return ()=>{ URL.revokeObjectURL(imageURL); }; },[imageURL]);
   useEffect(()=>{ if(!imgEl) return; const c=document.createElement('canvas'); c.width=imgEl.naturalWidth; c.height=imgEl.naturalHeight; const ctx=c.getContext('2d')!; ctx.imageSmoothingEnabled=false; ctx.drawImage(imgEl,0,0); const data=ctx.getImageData(0,0,c.width,c.height); setImgData(data); setBuild(null); },[imgEl]);
   useEffect(()=>{ if(!imgData) return; const p=Math.max(1,pixelSize); const built=rebuildBase(imgData,p,p,0,0); setBuild(built); },[imgData,pixelSize]);
@@ -134,7 +179,7 @@ export default function PixelArtCreator(){
         <div onDrop={onDrop} onDragOver={(e)=>e.preventDefault()} className="border-2 border-dashed border-zinc-700 rounded-2xl p-10 text-center grid place-items-center bg-zinc-900/40">
           <div className="space-y-4">
             <div className="text-lg">Drop an image here</div>
-            <div className="text-zinc-400 text-sm">Or click to choose a file</div>
+            <div className="text-zinc-400 text-sm">Or click to choose a file or press Ctrl+V to paste from clipboard</div>
             <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 cursor-pointer">
               <input type="file" accept="image/*" className="hidden" onChange={onSelectFile}/>
               <span>Choose image</span>
