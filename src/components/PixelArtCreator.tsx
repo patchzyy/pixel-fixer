@@ -141,7 +141,7 @@ export default function PixelArtCreator(){
         img = await quantizeToPaletteAdvancedFast(img, activePaletteRGB, opts);
       }
       // Optional post-quantization film grain
-      if(noiseAmt>0){ img = addNoise(img, noiseAmt); }
+      if(noiseAmt>0){ img = addNoise(img, noiseAmt, activePaletteRGB); }
       if(alive) setProcessedBase(img);
     })();
     return ()=>{ alive = false; };

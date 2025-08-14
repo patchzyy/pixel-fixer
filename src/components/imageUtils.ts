@@ -131,9 +131,12 @@ export function unsharpMask(img: ImageData, radius: number, amount: number){
   return out;
 }
 
-export function addNoise(img: ImageData, amount: number){
+export function addNoise(img: ImageData, amount: number, palette?: {r:number;g:number;b:number}[]){
   if(amount <= 0) return img; const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height); const d=out.data; const a = Math.max(0, Math.min(64, amount));
-  for(let i=0;i<d.length;i+=4){ const n = (Math.random()*2-1)*a; const n2 = (Math.random()*2-1)*a; const n3 = (Math.random()*2-1)*a; d[i]=clamp255(d[i]+n); d[i+1]=clamp255(d[i+1]+n2); d[i+2]=clamp255(d[i+2]+n3); }
+  const usePalette = Array.isArray(palette) && palette.length > 0;
+  for(let i=0;i<d.length;i+=4){ const n = (Math.random()*2-1)*a; const n2 = (Math.random()*2-1)*a; const n3 = (Math.random()*2-1)*a; let r = clamp255(d[i]+n), g = clamp255(d[i+1]+n2), b = clamp255(d[i+2]+n3);
+    if(usePalette){ const c = nearestPaletteColor(r,g,b,palette!, 'oklab'); r = c.r; g = c.g; b = c.b; }
+    d[i]=r; d[i+1]=g; d[i+2]=b; }
   return out;
 }
 
