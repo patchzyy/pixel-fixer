@@ -95,6 +95,75 @@ export function downloadImageDataPNG(img: ImageData, filename:string){
   const c = document.createElement('canvas'); const ctx = c.getContext('2d')!; c.width = img.width; c.height = img.height; ctx.putImageData(img,0,0); downloadCanvasPNG(c, filename);
 }
 
+// --------- Advanced pre/post processing helpers ---------
+// Fast separable box blur used by unsharp mask
+function boxBlur(img: ImageData, radius: number){
+  if(radius <= 0) return img; const w=img.width, h=img.height; const src=img.data; const tmp = new Float32Array(w*h*3); const out = new ImageData(w,h); const dst=out.data;
+  const win = radius*2+1; const inv = 1 / win;
+  // Horizontal pass
+  for(let y=0;y<h;y++){
+    let rSum=0,gSum=0,bSum=0; const row = y*w*4; const rowF = y*w*3;
+    for(let x=-radius;x<=radius;x++){ const xx = x<0?0:x>=w?w-1:x; const i=row+xx*4; rSum+=src[i]; gSum+=src[i+1]; bSum+=src[i+2]; }
+    for(let x=0;x<w;x++){
+      const o=rowF+x*3; tmp[o]=rSum*inv; tmp[o+1]=gSum*inv; tmp[o+2]=bSum*inv;
+      const xOut = x+radius+1, xIn = x-radius; if(xOut < w){ const io=row+xOut*4; rSum+=src[io]; gSum+=src[io+1]; bSum+=src[io+2]; }
+      const xi = xIn<0?0:xIn; const ii=row+xi*4; rSum-=src[ii]; gSum-=src[ii+1]; bSum-=src[ii+2];
+    }
+  }
+  // Vertical pass
+  const invV = 1 / (radius*2+1);
+  for(let x=0;x<w;x++){
+    let rSum=0,gSum=0,bSum=0; const col = x*3; const colO = x*4;
+    for(let y=-radius;y<=radius;y++){ const yy = y<0?0:y>=h?h-1:y; const i=yy*w*3+col; rSum+=tmp[i]; gSum+=tmp[i+1]; bSum+=tmp[i+2]; }
+    for(let y=0;y<h;y++){
+      const o=y*w*4+colO; const r=rSum*invV, g=gSum*invV, b=bSum*invV; dst[o]=r; dst[o+1]=g; dst[o+2]=b; dst[o+3]=255;
+      const yOut = y+radius+1, yIn = y-radius; if(yOut < h){ const io=yOut*w*3+col; rSum+=tmp[io]; gSum+=tmp[io+1]; bSum+=tmp[io+2]; }
+      const yi = yIn<0?0:yIn; const ii=yi*w*3+col; rSum-=tmp[ii]; gSum-=tmp[ii+1]; bSum-=tmp[ii+2];
+    }
+  }
+  return out;
+}
+
+export function unsharpMask(img: ImageData, radius: number, amount: number){
+  if(amount <= 0 || radius <= 0) return img; const blur = boxBlur(img, Math.max(1, Math.min(6, Math.round(radius))));
+  const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height); const d=out.data; const b=blur.data; const k = amount; // amount as 0..2
+  for(let i=0;i<d.length;i+=4){ const r=d[i], g=d[i+1], bl=d[i+2]; d[i]=clamp255(r + (r - b[i]) * k); d[i+1]=clamp255(g + (g - b[i+1]) * k); d[i+2]=clamp255(bl + (bl - b[i+2]) * k); }
+  return out;
+}
+
+export function addNoise(img: ImageData, amount: number){
+  if(amount <= 0) return img; const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height); const d=out.data; const a = Math.max(0, Math.min(64, amount));
+  for(let i=0;i<d.length;i+=4){ const n = (Math.random()*2-1)*a; const n2 = (Math.random()*2-1)*a; const n3 = (Math.random()*2-1)*a; d[i]=clamp255(d[i]+n); d[i+1]=clamp255(d[i+1]+n2); d[i+2]=clamp255(d[i+2]+n3); }
+  return out;
+}
+
+// Simple 3x3 mode filter that keeps to palette colors (works best after quantization)
+export function modeFilterQuantized(img: ImageData, iterations=1){
+  if(iterations<=0) return img; let cur = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+  const w=img.width, h=img.height;
+  const key = (r:number,g:number,b:number)=> (r<<16)|(g<<8)|b;
+  for(let it=0; it<iterations; it++){
+    const next = new ImageData(w,h);
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+  const counts = new Map<number, number>();
+  let bestKey=0, bestCount=-1; const i0=(y*w+x)*4;
+        for(let dy=-1; dy<=1; dy++){
+          const yy=y+dy; if(yy<0||yy>=h) continue;
+          for(let dx=-1; dx<=1; dx++){
+            const xx=x+dx; if(xx<0||xx>=w) continue; const i=(yy*w+xx)*4; const k=key(cur.data[i],cur.data[i+1],cur.data[i+2]); const c=(counts.get(k)||0)+1; counts.set(k,c); if(c>bestCount){ bestCount=c; bestKey=k; }
+          }
+        }
+        const r=(bestKey>>16)&255, g=(bestKey>>8)&255, b=bestKey&255; const o=(y*w+x)*4; next.data[o]=r; next.data[o+1]=g; next.data[o+2]=b; next.data[o+3]=255;
+        // prefer original color on ties
+        if(bestCount<=1){ next.data[i0]=cur.data[i0]; next.data[i0+1]=cur.data[i0+1]; next.data[i0+2]=cur.data[i0+2]; next.data[i0+3]=255; }
+      }
+    }
+    cur = next;
+  }
+  return cur;
+}
+
 export function quantizeToPalette(img: ImageData, palette:{r:number;g:number;b:number;}[]){
   if(!palette.length) return img; const out = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height); const data = out.data; for(let i=0;i<data.length;i+=4){ let br=data[i], bg=data[i+1], bb=data[i+2]; let bestIdx=0, bestDist=Infinity; for(let p=0;p<palette.length;p++){ const pr=palette[p].r, pg=palette[p].g, pb=palette[p].b; const dr=br-pr, dg=bg-pg, db=bb-pb; const dist=dr*dr+dg*dg+db*db; if(dist<bestDist){ bestDist=dist; bestIdx=p; } } const best = palette[bestIdx]; data[i]=best.r; data[i+1]=best.g; data[i+2]=best.b; } return out;
 }
