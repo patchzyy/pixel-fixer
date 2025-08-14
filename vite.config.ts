@@ -2,8 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-export default defineConfig({
+// Use root base in dev, and repo subpath in build for GitHub Pages
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
-  // Correct base path for GitHub Pages (repo name)
-  base: '/pixel-fixer/',
-})
+  base: command === 'build' ? '/pixel-fixer/' : '/',
+}))
