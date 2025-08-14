@@ -50,6 +50,14 @@ export default function PixelArtCreator(){
   const [build, setBuild] = useState<BuildResult | null>(null);
   // Dithering controls (now in a dedicated tab)
   const [dither, setDither] = useState<'none'|'floyd-steinberg'|'ordered4'|'ordered8'|'atkinson'>('floyd-steinberg');
+  // Artwork/Photo mode
+  const [mode, setMode] = useState<'artwork'|'photo'>('photo');
+  // Handler for mode change
+  const handleModeChange = (newMode: 'artwork'|'photo') => {
+    setMode(newMode);
+    if (newMode === 'artwork') setDither('none');
+    else setDither('floyd-steinberg');
+  };
   const [distance, setDistance] = useState<'rgb'|'oklab'>('oklab');
   const [orderedStrength, setOrderedStrength] = useState(50); // 0..100
   const [serpentine, setSerpentine] = useState(true);
@@ -111,6 +119,31 @@ export default function PixelArtCreator(){
             {/* Pixelate panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
               <h2 className="font-medium mb-3">Pixelate</h2>
+              {/* Artwork/Photo mode selector */}
+              <div className="mb-4 flex gap-4 items-center">
+                <label className="flex items-center gap-1 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="artwork"
+                    checked={mode === 'artwork'}
+                    onChange={() => handleModeChange('artwork')}
+                    className="accent-blue-600"
+                  />
+                  Artwork
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="photo"
+                    checked={mode === 'photo'}
+                    onChange={() => handleModeChange('photo')}
+                    className="accent-blue-600"
+                  />
+                  Photo
+                </label>
+              </div>
               <div className="text-sm space-y-4">
                 <div>
                   <label className="text-zinc-400 block">Pixel size (block px)</label>
