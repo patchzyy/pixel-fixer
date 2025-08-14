@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FULL_PALETTE, FREE_COLOR_SET, hexToRGB } from './palette';
 import type { BuildResult } from './imageUtils';
-import { rebuildBase, posterize, drawToCanvas, downloadCanvasPNG, downloadImageDataPNG, quantizeToPaletteAdvancedFast, unsharpMask, addNoise } from './imageUtils';
+import { rebuildBase, posterize, drawToCanvas, downloadCanvasPNG, downloadImageDataPNG, quantizeToPaletteAdvancedFast } from './imageUtils';
 
 // Utility to adjust saturation and contrast (percent values where 100 = unchanged)
 function applySaturationContrast(img: ImageData, saturationPct: number, contrastPct: number){
@@ -48,24 +48,19 @@ export default function PixelArtCreator(){
   const activePaletteRGB = useMemo(()=>{ if(!usePalette) return [] as {r:number;g:number;b:number;}[]; return FULL_PALETTE.filter((_,i)=>enabledColors[i]).map(hexToRGB); },[usePalette, enabledColors]);
   const afterCanvasRef = useRef<HTMLCanvasElement>(null); const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const [build, setBuild] = useState<BuildResult | null>(null);
-   // Advanced settings (dithering and more)
-  const [dither, setDither] = useState<'none'|'floyd-steinberg'|'ordered4'|'ordered8'|'atkinson'|'optimised-custom'>('floyd-steinberg');
+  // Dithering controls (now in a dedicated tab)
+  const [dither, setDither] = useState<'none'|'floyd-steinberg'|'ordered4'|'ordered8'|'atkinson'>('floyd-steinberg');
   // Artwork/Photo mode
   const [mode, setMode] = useState<'artwork'|'photo'>('photo');
   // Handler for mode change
   const handleModeChange = (newMode: 'artwork'|'photo') => {
     setMode(newMode);
     if (newMode === 'artwork') setDither('none');
-    else setDither('optimised-custom'); // Default to our optimized method for photos
+    else setDither('floyd-steinberg');
   };
   const [distance, setDistance] = useState<'rgb'|'oklab'>('oklab');
   const [orderedStrength, setOrderedStrength] = useState(50); // 0..100
   const [serpentine, setSerpentine] = useState(true);
-  // Advanced settings state
-  const [gamma, setGamma] = useState(100); // 10..300 (%), 100 = off
-  const [sharpenAmt, setSharpenAmt] = useState(0); // 0..200 (%)
-  const [sharpenRadius, setSharpenRadius] = useState(1); // 1..6 (px)
-  const [noiseAmt, setNoiseAmt] = useState(0); // 0..64
   const onFile = (file:File) => { const url = URL.createObjectURL(file); setImageURL(url); };
   useEffect(()=>{ if(!imageURL) return; const img=new Image(); img.onload=()=>setImgEl(img); img.onerror=()=>{ alert('Failed to load image'); setImageURL(null); }; img.src=imageURL; return ()=>{ URL.revokeObjectURL(imageURL); }; },[imageURL]);
   useEffect(()=>{ if(!imgEl) return; const c=document.createElement('canvas'); c.width=imgEl.naturalWidth; c.height=imgEl.naturalHeight; const ctx=c.getContext('2d')!; ctx.imageSmoothingEnabled=false; ctx.drawImage(imgEl,0,0); const data=ctx.getImageData(0,0,c.width,c.height); setImgData(data); setBuild(null); },[imgEl]);
@@ -77,28 +72,15 @@ export default function PixelArtCreator(){
       if(!build){ setProcessedBase(null); return; }
       let img = posterizeBits < 8 ? posterize(build.baseImageData, posterizeBits) : build.baseImageData;
       img = applySaturationContrast(img, saturation, contrast);
-      // Gamma adjust before quantization (perceptual brightness shaping)
-      if(gamma !== 100){
-        const g = Math.max(10, Math.min(300, gamma)) / 100; // 0.1..3.0
-        const lut = new Uint8ClampedArray(256);
-        for(let i=0;i<256;i++){ const n=i/255; lut[i]=Math.max(0, Math.min(255, Math.round(Math.pow(n, 1/g)*255))); }
-        const d = new Uint8ClampedArray(img.data);
-        for(let i=0;i<d.length;i+=4){ d[i]=lut[d[i]]; d[i+1]=lut[d[i+1]]; d[i+2]=lut[d[i+2]]; }
-        img = new ImageData(d, img.width, img.height);
-      }
-      // Optional pre-quantization sharpening
-      if(sharpenAmt>0){ img = unsharpMask(img, sharpenRadius, sharpenAmt/100*2); }
       if(activePaletteRGB.length){
         const opts = { dithering: dither, distance, orderedStrength: orderedStrength/100, serpentine } as const;
         // Use workers for all modes; it's faster and non-blocking
         img = await quantizeToPaletteAdvancedFast(img, activePaletteRGB, opts);
       }
-      // Optional post-quantization film grain
-      if(noiseAmt>0){ img = addNoise(img, noiseAmt); }
       if(alive) setProcessedBase(img);
     })();
     return ()=>{ alive = false; };
-  }, [build, posterizeBits, activePaletteRGB, saturation, contrast, dither, distance, orderedStrength, serpentine, gamma, sharpenAmt, sharpenRadius, noiseAmt]);
+  }, [build, posterizeBits, activePaletteRGB, saturation, contrast, dither, distance, orderedStrength, serpentine]);
   const fullPixelated = useMemo(()=>{ if(!processedBase || !imgData || !build) return null; const { width: fullW, height: fullH } = imgData; const { wOut, hOut } = build.crop; const out=new ImageData(fullW, fullH); const baseData=processedBase.data; const outData=out.data; for(let y=0;y<fullH;y++){ const by=Math.min(hOut-1, Math.floor(y / pixelSize)); for(let x=0;x<fullW;x++){ const bx=Math.min(wOut-1, Math.floor(x / pixelSize)); const bi=(by*wOut+bx)*4; const oi=(y*fullW+x)*4; outData[oi]=baseData[bi]; outData[oi+1]=baseData[bi+1]; outData[oi+2]=baseData[bi+2]; outData[oi+3]=255; }} return out; },[processedBase,imgData,build,pixelSize]);
   useEffect(()=>{ if(!imgEl || !fullPixelated) return; const w=imgEl.naturalWidth; const h=imgEl.naturalHeight; if(afterCanvasRef.current){ const canvas=afterCanvasRef.current; canvas.width=w; canvas.height=h; const ctx=canvas.getContext('2d')!; ctx.clearRect(0,0,w,h); ctx.imageSmoothingEnabled=false; const off=document.createElement('canvas'); off.width=fullPixelated.width; off.height=fullPixelated.height; off.getContext('2d')!.putImageData(fullPixelated,0,0); ctx.drawImage(off,0,0); } },[imgEl,fullPixelated]);
   useEffect(()=>{ if(!processedBase || !baseCanvasRef.current) return; 
@@ -115,17 +97,6 @@ export default function PixelArtCreator(){
   const handleExportUpscaled = () => { if(!afterCanvasRef.current) return; downloadCanvasPNG(afterCanvasRef.current, `pixelcreator_upscaled_${imgEl?.naturalWidth}x${imgEl?.naturalHeight}.png`); };
   const onDrop = (e:React.DragEvent) => { e.preventDefault(); const file=e.dataTransfer.files?.[0]; if(file) onFile(file); };
   const onSelectFile = (e:React.ChangeEvent<HTMLInputElement>) => { const file=e.target.files?.[0]; if(file) onFile(file); };
-  const [isPixelateCollapsed, setIsPixelateCollapsed] = useState(false);
-  const [isPaletteCollapsed, setIsPaletteCollapsed] = useState(false);
-  const [isDitheringCollapsed, setIsDitheringCollapsed] = useState(false);
-  const [isAdvancedCollapsed, setIsAdvancedCollapsed] = useState(false);
-
-  const toggleCollapse = (section: 'pixelate' | 'palette' | 'dithering' | 'advanced') => {
-    if (section === 'pixelate') setIsPixelateCollapsed(!isPixelateCollapsed);
-    if (section === 'palette') setIsPaletteCollapsed(!isPaletteCollapsed);
-    if (section === 'dithering') setIsDitheringCollapsed(!isDitheringCollapsed);
-    if (section === 'advanced') setIsAdvancedCollapsed(!isAdvancedCollapsed);
-  };
   return (
     <main className="max-w-7xl mx-auto px-4 py-6 grid gap-6">
       {!imageURL && (
@@ -147,157 +118,116 @@ export default function PixelArtCreator(){
           <aside className="md:w-80 flex-shrink-0 space-y-4 md:sticky md:top-4 self-start">
             {/* Pixelate panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('pixelate')}>
-                Pixelate
-              </h2>
-              {!isPixelateCollapsed && (
+              <h2 className="font-medium mb-3">Pixelate</h2>
+              {/* Artwork/Photo mode selector */}
+              <div className="mb-4 flex gap-4 items-center">
+                <label className="flex items-center gap-1 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="artwork"
+                    checked={mode === 'artwork'}
+                    onChange={() => handleModeChange('artwork')}
+                    className="accent-blue-600"
+                  />
+                  Artwork
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="photo"
+                    checked={mode === 'photo'}
+                    onChange={() => handleModeChange('photo')}
+                    className="accent-blue-600"
+                  />
+                  Photo
+                </label>
+              </div>
+              <div className="text-sm space-y-4">
                 <div>
-                  {/* Artwork/Photo mode selector */}
-                  <div className="mb-4 flex gap-4 items-center">
-                    <label className="flex items-center gap-1 cursor-pointer text-xs">
-                      <input
-                        type="radio"
-                        name="mode"
-                        value="artwork"
-                        checked={mode === 'artwork'}
-                        onChange={() => handleModeChange('artwork')}
-                        className="accent-blue-600"
-                      />
-                      Artwork
-                    </label>
-                    <label className="flex items-center gap-1 cursor-pointer text-xs">
-                      <input
-                        type="radio"
-                        name="mode"
-                        value="photo"
-                        checked={mode === 'photo'}
-                        onChange={() => handleModeChange('photo')}
-                        className="accent-blue-600"
-                      />
-                      Photo
-                    </label>
-                  </div>
-                  <div className="text-sm space-y-4">
-                    <div>
-                      <label className="text-zinc-400 block">Pixel size (block px)</label>
-                      <input type="range" min={1} max={128} value={pixelSize} onChange={e=>setPixelSize(parseInt(e.target.value))} className="w-full"/>
-                      <div className="text-zinc-400">{pixelSize} px</div>
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 block">Posterize (bits / channel)</label>
-                      <input type="range" min={2} max={8} value={posterizeBits} onChange={e=>setPosterizeBits(parseInt(e.target.value))} className="w-full"/>
-                      <div className="text-zinc-400">{posterizeBits} bits</div>
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 block">Saturation</label>
-                      <input type="range" min={0} max={200} value={saturation} onChange={e=>setSaturation(parseInt(e.target.value))} className="w-full"/>
-                      <div className="text-zinc-400">{saturation}%</div>
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 block">Contrast</label>
-                      <input type="range" min={0} max={200} value={contrast} onChange={e=>setContrast(parseInt(e.target.value))} className="w-full"/>
-                      <div className="text-zinc-400">{contrast}%</div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs pt-2 border-t border-zinc-800/60">
-                      <label className="flex items-center gap-1 cursor-pointer select-none">
-                        <input type="checkbox" className="accent-blue-600" checked={usePalette} onChange={e=>setUsePalette(e.target.checked)}/>
-                        <span className="text-zinc-300">Use palette</span>
-                      </label>
-                    </div>
-                  </div>
+                  <label className="text-zinc-400 block">Pixel size (block px)</label>
+                  <input type="range" min={1} max={128} value={pixelSize} onChange={e=>setPixelSize(parseInt(e.target.value))} className="w-full"/>
+                  <div className="text-zinc-400">{pixelSize} px</div>
                 </div>
-              )}
+                <div>
+                  <label className="text-zinc-400 block">Posterize (bits / channel)</label>
+                  <input type="range" min={2} max={8} value={posterizeBits} onChange={e=>setPosterizeBits(parseInt(e.target.value))} className="w-full"/>
+                  <div className="text-zinc-400">{posterizeBits} bits</div>
+                </div>
+                <div>
+                  <label className="text-zinc-400 block">Saturation</label>
+                  <input type="range" min={0} max={200} value={saturation} onChange={e=>setSaturation(parseInt(e.target.value))} className="w-full"/>
+                  <div className="text-zinc-400">{saturation}%</div>
+                </div>
+                <div>
+                  <label className="text-zinc-400 block">Contrast</label>
+                  <input type="range" min={0} max={200} value={contrast} onChange={e=>setContrast(parseInt(e.target.value))} className="w-full"/>
+                  <div className="text-zinc-400">{contrast}%</div>
+                </div>
+                <div className="flex items-center gap-2 text-xs pt-2 border-t border-zinc-800/60">
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                    <input type="checkbox" className="accent-blue-600" checked={usePalette} onChange={e=>setUsePalette(e.target.checked)}/>
+                    <span className="text-zinc-300">Use palette</span>
+                  </label>
+                </div>
+              </div>
             </div>
             {/* Palette panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('palette')}>
-                Palette
-              </h2>
-              {!isPaletteCollapsed && (
-                <div>
-                  <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
-                    <button onClick={applyFreeColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable only free colors">Only free</button>
-                    <button onClick={enableAllColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable all colors">All</button>
-                    <button onClick={disableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Disable all colors">None</button>
-                  </div>
-                  <div className="grid grid-cols-8 gap-2">
-                    {FULL_PALETTE.map((hex,i)=>{ const enabled=enabledColors[i]; return (
-                      <button key={i} onClick={()=>toggleColor(i)} className={`w-6 h-6 rounded border border-zinc-700 relative ${enabled ? '' : 'opacity-30 grayscale'} focus:outline-none focus:ring-2 focus:ring-blue-500`} style={{backgroundColor:hex}} title={hex + (enabled ? '' : ' (disabled)')}>
-                        {!enabled && <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-zinc-200">×</span>}
-                      </button>
-                    ); })}
-                  </div>
-                  <p className="mt-3 text-[10px] leading-snug text-zinc-400">Toggle colors to constrain quantization. Only enabled colors are used.</p>
-                </div>
-              )}
+              <h2 className="font-medium mb-3">Palette</h2>
+              <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+                <button onClick={applyFreeColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable only free colors">Only free</button>
+                <button onClick={enableAllColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable all colors">All</button>
+                <button onClick={disableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Disable all colors">None</button>
+              </div>
+              <div className="grid grid-cols-8 gap-2">
+                {FULL_PALETTE.map((hex,i)=>{ const enabled=enabledColors[i]; return (
+                  <button key={i} onClick={()=>toggleColor(i)} className={`w-6 h-6 rounded border border-zinc-700 relative ${enabled ? '' : 'opacity-30 grayscale'} focus:outline-none focus:ring-2 focus:ring-blue-500`} style={{backgroundColor:hex}} title={hex + (enabled ? '' : ' (disabled)')}>
+                    {!enabled && <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-zinc-200">×</span>}
+                  </button>
+                ); })}
+              </div>
+              <p className="mt-3 text-[10px] leading-snug text-zinc-400">Toggle colors to constrain quantization. Only enabled colors are used.</p>
             </div>
-            {/* Advanced settings panel (renamed from Dithering) */
-            }
+            {/* Dithering panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('advanced')}>
-                Advanced settings
-              </h2>
-              {!isAdvancedCollapsed && (
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <label className="text-zinc-400 block mb-1">Dithering method</label>
-                    <select value={dither} onChange={e=>setDither(e.target.value as any)} className="w-full bg-zinc-800 rounded px-2 py-1">
-                      <option value="floyd-steinberg">Floyd–Steinberg</option>
-                      <option value="atkinson">Atkinson</option>
-                      <option value="optimised-custom">Optimised (custom)</option>
-                      <option value="ordered4">Ordered 4×4</option>
-                      <option value="ordered8">Ordered 8×8</option>
-                      <option value="none">None</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-zinc-400 block mb-1">Perceptual distance</label>
-                    <select value={distance} onChange={e=>setDistance(e.target.value as any)} className="w-full bg-zinc-800 rounded px-2 py-1">
-                      <option value="oklab">OKLab (recommended)</option>
-                      <option value="rgb">RGB</option>
-                    </select>
-                  </div>
-                  {(dither==='ordered4'||dither==='ordered8') && (
-                    <div>
-                      <label className="text-zinc-400 block">Ordered strength</label>
-                      <input type="range" min={0} max={100} value={orderedStrength} onChange={e=>setOrderedStrength(parseInt(e.target.value))} className="w-full"/>
-                      <div className="text-zinc-400">{orderedStrength}%</div>
-                    </div>
-                  )}
-                  {(dither==='floyd-steinberg'||dither==='atkinson'||dither==='optimised-custom') && (
-                    <div className="flex items-center gap-2 text-xs pt-2 border-t border-zinc-800/60">
-                      <label className="flex items-center gap-1 cursor-pointer select-none">
-                        <input type="checkbox" className="accent-blue-600" checked={serpentine} onChange={e=>setSerpentine(e.target.checked)}/>
-                        <span className="text-zinc-300">Serpentine scan</span>
-                      </label>
-                    </div>
-                  )}
-                  {/* Advanced pre/post features */}
-                  <div>
-                    <label className="text-zinc-400 block">Gamma</label>
-                    <input type="range" min={10} max={300} value={gamma} onChange={e=>setGamma(parseInt(e.target.value))} className="w-full"/>
-                    <div className="text-zinc-400">{(gamma/100).toFixed(2)}×</div>
-                  </div>
-                  <div>
-                    <label className="text-zinc-400 block">Sharpen amount</label>
-                    <input type="range" min={0} max={200} value={sharpenAmt} onChange={e=>setSharpenAmt(parseInt(e.target.value))} className="w-full"/>
-                    <div className="text-zinc-400">{sharpenAmt}%</div>
-                    {sharpenAmt>0 && (
-                      <div className="mt-2">
-                        <label className="text-zinc-400 block">Sharpen radius</label>
-                        <input type="range" min={1} max={6} value={sharpenRadius} onChange={e=>setSharpenRadius(parseInt(e.target.value))} className="w-full"/>
-                        <div className="text-zinc-400">{sharpenRadius}px</div>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label className="text-zinc-400 block">Film grain (noise)</label>
-                    <input type="range" min={0} max={64} value={noiseAmt} onChange={e=>setNoiseAmt(parseInt(e.target.value))} className="w-full"/>
-                    <div className="text-zinc-400">{noiseAmt}</div>
-                  </div>
-                  <p className="text-[10px] leading-snug text-zinc-400">Use gamma and sharpen before quantization to enhance edges. A touch of grain helps hide banding on low palettes. "Optimised (custom)" uses advanced palette-aware dithering for best results.</p>
+              <h2 className="font-medium mb-3">Dithering</h2>
+              <div className="space-y-4 text-sm">
+                <div>
+                  <label className="text-zinc-400 block mb-1">Dithering method</label>
+                  <select value={dither} onChange={e=>setDither(e.target.value as any)} className="w-full bg-zinc-800 rounded px-2 py-1">
+                    <option value="floyd-steinberg">Floyd–Steinberg</option>
+                    <option value="atkinson">Atkinson</option>
+                    <option value="ordered4">Ordered 4×4</option>
+                    <option value="ordered8">Ordered 8×8</option>
+                    <option value="none">None</option>
+                  </select>
                 </div>
-              )}
+                <div>
+                  <label className="text-zinc-400 block mb-1">Perceptual distance</label>
+                  <select value={distance} onChange={e=>setDistance(e.target.value as any)} className="w-full bg-zinc-800 rounded px-2 py-1">
+                    <option value="oklab">OKLab (recommended)</option>
+                    <option value="rgb">RGB</option>
+                  </select>
+                </div>
+                {(dither==='ordered4'||dither==='ordered8') && (
+                  <div>
+                    <label className="text-zinc-400 block">Ordered strength</label>
+                    <input type="range" min={0} max={100} value={orderedStrength} onChange={e=>setOrderedStrength(parseInt(e.target.value))} className="w-full"/>
+                    <div className="text-zinc-400">{orderedStrength}%</div>
+                  </div>
+                )}
+                {(dither==='floyd-steinberg'||dither==='atkinson') && (
+                  <div className="flex items-center gap-2 text-xs pt-2 border-t border-zinc-800/60">
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                      <input type="checkbox" className="accent-blue-600" checked={serpentine} onChange={e=>setSerpentine(e.target.checked)}/>
+                      <span className="text-zinc-300">Serpentine scan</span>
+                    </label>
+                  </div>
+                )}
+                <p className="text-[10px] leading-snug text-zinc-400">Dithering and quantization are applied to the palette step. Floyd–Steinberg is recommended for smooth gradients; Ordered for crisp pixel patterns.</p>
+              </div>
             </div>
             {/* Export panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 grid content-start gap-3">
