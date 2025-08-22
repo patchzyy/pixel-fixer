@@ -30,6 +30,41 @@ function applySaturationContrast(img: ImageData, saturationPct: number, contrast
 }
 
 export default function PixelArtCreator(){
+  // Helper function to format time in human-readable units
+  const formatTime = (totalSeconds: number): string => {
+    if (totalSeconds < 60) {
+      return `${Math.round(totalSeconds)} second${totalSeconds === 1 ? '' : 's'}`;
+    } else if (totalSeconds < 3600) { // Less than 1 hour
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = Math.round(totalSeconds % 60);
+      return `${minutes} minute${minutes === 1 ? '' : 's'}${seconds > 0 ? ` and ${seconds} second${seconds === 1 ? '' : 's'}` : ''}`;
+    } else if (totalSeconds < 86400) { // Less than 1 day
+      const hours = Math.floor(totalSeconds / 3600);
+      const remainingMinutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = Math.round(totalSeconds % 60);
+      let result = `${hours} hour${hours === 1 ? '' : 's'}`;
+      if (remainingMinutes > 0) {
+        result += ` and ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}`;
+      }
+      if (seconds > 0 && remainingMinutes === 0) {
+        result += ` and ${seconds} second${seconds === 1 ? '' : 's'}`;
+      }
+      return result;
+    } else { // Days or more
+      const days = Math.floor(totalSeconds / 86400);
+      const remainingHours = Math.floor((totalSeconds % 86400) / 3600);
+      const remainingMinutes = Math.floor((totalSeconds % 3600) / 60);
+      let result = `${days} day${days === 1 ? '' : 's'}`;
+      if (remainingHours > 0) {
+        result += ` and ${remainingHours} hour${remainingHours === 1 ? '' : 's'}`;
+      }
+      if (remainingMinutes > 0 && remainingHours === 0) {
+        result += ` and ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}`;
+      }
+      return result;
+    }
+  };
+
   const [imageURL, setImageURL] = useState<string | null>(null);
   const [imgEl, setImgEl] = useState<HTMLImageElement | null>(null);
   const [imgData, setImgData] = useState<ImageData | null>(null);
@@ -39,6 +74,7 @@ export default function PixelArtCreator(){
   // New adjustments
   const [saturation, setSaturation] = useState(100); // 0-200
   const [contrast, setContrast] = useState(100); // 0-200
+
   const [usePalette, setUsePalette] = useState(true);
   const [enabledColors, setEnabledColors] = useState<boolean[]>(() => FULL_PALETTE.map(()=>true));
   const toggleColor = (i:number)=> setEnabledColors(p=>p.map((v,idx)=> idx===i? !v : v));
@@ -391,6 +427,12 @@ export default function PixelArtCreator(){
             {/* Base canvas preview */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
               <h2 className="font-medium mb-3">Pixel base ({build?.baseImageData.width} x {build?.baseImageData.height})</h2>
+              {build?.baseImageData && (
+                <div className="mb-3 text-sm text-zinc-400 space-y-1">
+                  <div>Total pixelcount: {build.baseImageData.width * build.baseImageData.height - (build.transparentPixelCount || 0)}</div>
+                  <div>Time to build: {formatTime(30 * (build.baseImageData.width * build.baseImageData.height - (build.transparentPixelCount || 0)))}</div>
+                </div>
+              )}
               <canvas ref={baseCanvasRef} className="block rounded-xl border border-zinc-800 mx-auto" style={{ imageRendering: 'pixelated' as any, width:'100%', height:'auto' }}/>
             </div>
           </section>

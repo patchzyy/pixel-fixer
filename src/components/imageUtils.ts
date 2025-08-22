@@ -1,6 +1,6 @@
 // Shared image / pixel processing utilities
 export interface DetectResult { sX:number; sY:number; dX:number; dY:number; ratioX:number; ratioY:number; }
-export interface BuildResult { baseImageData: ImageData; crop:{ x0:number; y0:number; wCrop:number; hCrop:number; wOut:number; hOut:number }; }
+export interface BuildResult { baseImageData: ImageData; crop:{ x0:number; y0:number; wCrop:number; hCrop:number; wOut:number; hOut:number }; transparentPixelCount?: number; }
 
 export function computeDiffs(imgData: ImageData){
   const { width: w, height: h, data } = imgData;
@@ -65,14 +65,34 @@ export function rebuildBase(imgData: ImageData, sX:number, sY:number, dX:number,
   const wCrop = wBlocks * sX; const hCrop = hBlocks * sY;
   const wOut = wBlocks; const hOut = hBlocks;
   const out = new ImageData(wOut, hOut); const outData = out.data;
+  let transparentPixelCount = 0;
   for (let by=0; by<hBlocks; by++) {
     for (let bx=0; bx<wBlocks; bx++) {
       let rSum=0,gSum=0,bSum=0,aSum=0,count=0; const startX = x0 + bx * sX; const startY = y0 + by * sY;
-      for (let yy=0; yy<sY; yy++) { const yIdx = (startY + yy) * w * 4; for (let xx=0; xx<sX; xx++) { const i = yIdx + (startX + xx) * 4; rSum+=data[i]; gSum+=data[i+1]; bSum+=data[i+2]; aSum+=data[i+3]; count++; }}
-      const o = (by * wOut + bx) * 4; outData[o] = Math.round(rSum/count); outData[o+1] = Math.round(gSum/count); outData[o+2] = Math.round(bSum/count); outData[o+3] = Math.round(aSum/count);
+      for (let yy=0; yy<sY; yy++) {
+        const yIdx = (startY + yy) * w * 4;
+        for (let xx=0; xx<sX; xx++) {
+          const i = yIdx + (startX + xx) * 4;
+          const alpha = data[i+3];
+          // Only include pixels that are not transparent (alpha >= 128)
+          if (alpha >= 128) {
+            rSum+=data[i]; gSum+=data[i+1]; bSum+=data[i+2]; aSum+=alpha; count++;
+          } else {
+            transparentPixelCount++;
+          }
+        }
+      }
+      const o = (by * wOut + bx) * 4;
+      if (count > 0) {
+        // At least one non-transparent pixel found, use averaged values
+        outData[o] = Math.round(rSum/count); outData[o+1] = Math.round(gSum/count); outData[o+2] = Math.round(bSum/count); outData[o+3] = Math.round(aSum/count);
+      } else {
+        // All pixels in this block are transparent, set to fully transparent
+        outData[o] = 0; outData[o+1] = 0; outData[o+2] = 0; outData[o+3] = 0;
+      }
     }
   }
-  return { baseImageData: out, crop: { x0, y0, wCrop, hCrop, wOut, hOut } };
+  return { baseImageData: out, crop: { x0, y0, wCrop, hCrop, wOut, hOut }, transparentPixelCount };
 }
 
 export function posterize(img: ImageData, bits:number){
