@@ -198,16 +198,101 @@ export default function PixelArtCreator(){
   const handleExportUpscaled = () => { if(!afterCanvasRef.current) return; downloadCanvasPNG(afterCanvasRef.current, `pixelcreator_upscaled_${imgEl?.naturalWidth}x${imgEl?.naturalHeight}.png`); };
   const onDrop = (e:React.DragEvent) => { e.preventDefault(); const file=e.dataTransfer.files?.[0]; if(file) onFile(file); };
   const onSelectFile = (e:React.ChangeEvent<HTMLInputElement>) => { const file=e.target.files?.[0]; if(file) onFile(file); };
+
+  // Color replacement functions
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isColorReplacementMode || !afterCanvasRef.current) return;
+
+    const canvas = afterCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Scale coordinates to match canvas resolution
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const canvasX = Math.floor(x * scaleX);
+    const canvasY = Math.floor(y * scaleY);
+
+    // Get pixel color at clicked position
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const pixelData = ctx.getImageData(canvasX, canvasY, 1, 1).data;
+    const selectedColor = {
+      r: pixelData[0],
+      g: pixelData[1],
+      b: pixelData[2]
+    };
+
+    setSelectedColorToReplace(selectedColor);
+    setReplacementColor(null); // Reset replacement color when selecting a new color to replace
+  };
+
+  const performColorReplacement = () => {
+    if (!processedBase || !selectedColorToReplace || !replacementColor) return;
+
+    const newImageData = new ImageData(
+      new Uint8ClampedArray(processedBase.data),
+      processedBase.width,
+      processedBase.height
+    );
+
+    const data = newImageData.data;
+    const tolerance = 5; // Allow small variations in color matching
+    let replacedCount = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      // Check if this pixel matches the selected color (with tolerance)
+      if (
+        Math.abs(r - selectedColorToReplace.r) <= tolerance &&
+        Math.abs(g - selectedColorToReplace.g) <= tolerance &&
+        Math.abs(b - selectedColorToReplace.b) <= tolerance
+      ) {
+        // Replace with the new color
+        data[i] = replacementColor.r;
+        data[i + 1] = replacementColor.g;
+        data[i + 2] = replacementColor.b;
+        replacedCount++;
+      }
+    }
+
+    // Update the processed base with the modified image data
+    setProcessedBase(newImageData);
+
+    // Provide user feedback
+    console.log(`Replaced ${replacedCount} pixels from RGB(${selectedColorToReplace.r}, ${selectedColorToReplace.g}, ${selectedColorToReplace.b}) to RGB(${replacementColor.r}, ${replacementColor.g}, ${replacementColor.b})`);
+
+    // Clear selection after replacement for better UX
+    setSelectedColorToReplace(null);
+    setReplacementColor(null);
+  };
+
+  const clearColorReplacement = () => {
+    setSelectedColorToReplace(null);
+    setReplacementColor(null);
+  };
   const [isPixelateCollapsed, setIsPixelateCollapsed] = useState(false);
   const [isPaletteCollapsed, setIsPaletteCollapsed] = useState(false);
   const [isDitheringCollapsed, setIsDitheringCollapsed] = useState(false);
   const [isAdvancedCollapsed, setIsAdvancedCollapsed] = useState(false);
 
-  const toggleCollapse = (section: 'pixelate' | 'palette' | 'dithering' | 'advanced') => {
+  // Color replacement functionality
+  const [isColorReplacementMode, setIsColorReplacementMode] = useState(false);
+  const [selectedColorToReplace, setSelectedColorToReplace] = useState<{r:number;g:number;b:number} | null>(null);
+  const [replacementColor, setReplacementColor] = useState<{r:number;g:number;b:number} | null>(null);
+  const [isColorReplacementCollapsed, setIsColorReplacementCollapsed] = useState(false);
+
+  const toggleCollapse = (section: 'pixelate' | 'palette' | 'dithering' | 'advanced' | 'color-replacement') => {
     if (section === 'pixelate') setIsPixelateCollapsed(!isPixelateCollapsed);
     if (section === 'palette') setIsPaletteCollapsed(!isPaletteCollapsed);
     if (section === 'dithering') setIsDitheringCollapsed(!isDitheringCollapsed);
     if (section === 'advanced') setIsAdvancedCollapsed(!isAdvancedCollapsed);
+    if (section === 'color-replacement') setIsColorReplacementCollapsed(!isColorReplacementCollapsed);
   };
   return (
     <main className="max-w-7xl mx-auto px-4 py-6 grid gap-6">
@@ -386,6 +471,136 @@ export default function PixelArtCreator(){
                 </div>
               )}
             </div>
+            {/* Color Replacement panel */}
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
+              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('color-replacement')}>
+                Color Replacement
+              </h2>
+              {!isColorReplacementCollapsed && (
+                <div>
+                  <div className="flex items-center gap-2 text-xs pt-2 border-t border-zinc-800/60 mb-3">
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        checked={isColorReplacementMode}
+                        onChange={e => setIsColorReplacementMode(e.target.checked)}
+                      />
+                      <span className="text-zinc-300">Enable color replacement mode</span>
+                    </label>
+                  </div>
+
+                  {isColorReplacementMode && (
+                    <div className="space-y-4">
+                      {/* Selected color to replace */}
+                      <div>
+                        <label className="text-zinc-400 block text-sm mb-2">Selected color to replace</label>
+                        {selectedColorToReplace ? (
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-8 h-8 rounded border border-zinc-600"
+                              style={{
+                                backgroundColor: `rgb(${selectedColorToReplace.r}, ${selectedColorToReplace.g}, ${selectedColorToReplace.b})`
+                              }}
+                            />
+                            <span className="text-xs text-zinc-400">
+                              RGB({selectedColorToReplace.r}, {selectedColorToReplace.g}, {selectedColorToReplace.b})
+                            </span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-500">Click on the pixelated image to select a color</p>
+                        )}
+                      </div>
+
+                      {/* Replacement color selection */}
+                      {selectedColorToReplace && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-zinc-400 text-sm">Replacing:</span>
+                            <div
+                              className="w-6 h-6 rounded border-2 border-zinc-400"
+                              style={{
+                                backgroundColor: `rgb(${selectedColorToReplace.r}, ${selectedColorToReplace.g}, ${selectedColorToReplace.b})`
+                              }}
+                            />
+                            <span className="text-zinc-400 text-xs">→</span>
+                            {replacementColor ? (
+                              <div
+                                className="w-6 h-6 rounded border-2 border-blue-400"
+                                style={{
+                                  backgroundColor: `rgb(${replacementColor.r}, ${replacementColor.g}, ${replacementColor.b})`
+                                }}
+                              />
+                            ) : (
+                              <div className="w-6 h-6 rounded border-2 border-dashed border-zinc-500"></div>
+                            )}
+                          </div>
+                          <label className="text-zinc-400 block text-sm mb-2">Choose replacement color from palette</label>
+                          <div className="grid grid-cols-8 gap-2 mb-3">
+                            {FULL_PALETTE.map((hex, i) => {
+                              const rgb = hexToRGB(hex);
+                              return (
+                                <button
+                                  key={i}
+                                  onClick={() => setReplacementColor(rgb)}
+                                  className={`w-6 h-6 rounded border border-zinc-700 relative focus:outline-none focus:ring-2 focus:ring-blue-500 hover:scale-110 transition-transform ${
+                                    replacementColor &&
+                                    replacementColor.r === rgb.r &&
+                                    replacementColor.g === rgb.g &&
+                                    replacementColor.b === rgb.b
+                                      ? 'ring-2 ring-blue-400 scale-110'
+                                      : ''
+                                  }`}
+                                  style={{ backgroundColor: hex }}
+                                  title={`Replace with ${hex}`}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {replacementColor && (
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-xs text-zinc-400">Replacement color:</span>
+                              <div
+                                className="w-6 h-6 rounded border border-zinc-600"
+                                style={{
+                                  backgroundColor: `rgb(${replacementColor.r}, ${replacementColor.g}, ${replacementColor.b})`
+                                }}
+                              />
+                              <span className="text-xs text-zinc-400">
+                                RGB({replacementColor.r}, {replacementColor.g}, {replacementColor.b})
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={performColorReplacement}
+                          disabled={!selectedColorToReplace || !replacementColor}
+                          className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-xs"
+                        >
+                          Replace Colors
+                        </button>
+                        <button
+                          onClick={clearColorReplacement}
+                          className="px-3 py-1 rounded bg-zinc-700 hover:bg-zinc-600 text-xs"
+                        >
+                          Clear Selection
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] leading-snug text-zinc-400">
+                        Click on the pixelated image to select a color to replace, then choose a replacement color from the palette above.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Export panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 grid content-start gap-3">
               <h2 className="font-medium">Export</h2>
@@ -410,11 +625,23 @@ export default function PixelArtCreator(){
                     <img src={imageURL} alt="original" className="block w-full h-auto select-none" draggable={false}/>
                   </div>
                 </div>
-                <div className="pointer-events-none absolute inset-0">
+                <div className={`absolute inset-0 ${isColorReplacementMode ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-none'}`}>
                   <div className="relative w-full h-full">
-                    <canvas ref={afterCanvasRef} className="absolute top-0 left-0" style={{ width: '100%', height: '100%', imageRendering: 'pixelated' as any, clipPath: `inset(0 ${100 - reveal}% 0 0)` }}/>
+                    <canvas
+                      ref={afterCanvasRef}
+                      className="absolute top-0 left-0"
+                      style={{ width: '100%', height: '100%', imageRendering: 'pixelated' as any, clipPath: `inset(0 ${100 - reveal}% 0 0)` }}
+                      onClick={handleCanvasClick}
+                    />
                   </div>
                 </div>
+                {isColorReplacementMode && (
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-600/80 backdrop-blur px-3 py-2 rounded-xl border border-blue-500">
+                    <div className="flex items-center gap-2 text-xs text-white">
+                      <span>🎨 Color Replacement Mode</span>
+                    </div>
+                  </div>
+                )}
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur px-3 py-2 rounded-xl border border-zinc-800">
                   <div className="flex items-center gap-2 text-xs text-zinc-300">
                     <span>Reveal</span>
