@@ -427,12 +427,23 @@ export default function PixelArtCreator(){
             {/* Base canvas preview */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
               <h2 className="font-medium mb-3">Pixel base ({build?.baseImageData.width} x {build?.baseImageData.height})</h2>
-              {build?.baseImageData && (
-                <div className="mb-3 text-sm text-zinc-400 space-y-1">
-                  <div>Total pixelcount: {build.baseImageData.width * build.baseImageData.height - (build.transparentPixelCount || 0)}</div>
-                  <div>Time to build: {formatTime(30 * (build.baseImageData.width * build.baseImageData.height - (build.transparentPixelCount || 0)))}</div>
-                </div>
-              )}
+              {build?.baseImageData && processedBase && (() => {
+                // Calculate transparent pixel count for the processed pixelated image
+                let transparentCount = 0;
+                const data = processedBase.data;
+                for (let i = 0; i < data.length; i += 4) {
+                  if (data[i + 3] < 128) transparentCount++;
+                }
+                const totalPixels = processedBase.width * processedBase.height;
+                const nonTransparentPixels = totalPixels - transparentCount;
+
+                return (
+                  <div className="mb-3 text-sm text-zinc-400 space-y-1">
+                    <div>Total pixelcount: {nonTransparentPixels}</div>
+                    <div>Time to build: {formatTime(30 * nonTransparentPixels)}</div>
+                  </div>
+                );
+              })()}
               <canvas ref={baseCanvasRef} className="block rounded-xl border border-zinc-800 mx-auto" style={{ imageRendering: 'pixelated' as any, width:'100%', height:'auto' }}/>
             </div>
           </section>
