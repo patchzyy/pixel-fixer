@@ -315,7 +315,8 @@ export default function PixelArtCreator(){
           <aside className="md:w-80 flex-shrink-0 space-y-4 md:sticky md:top-4 self-start">
             {/* Pixelate panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('pixelate')}>
+              <h2 className="font-medium mb-3 cursor-pointer flex items-center gap-2" onClick={() => toggleCollapse('pixelate')}>
+                <span className={`text-zinc-400 transition-transform duration-200 ${isPixelateCollapsed ? 'rotate-90' : 'rotate-0'}`}>▶</span>
                 Pixelate
               </h2>
               {!isPixelateCollapsed && (
@@ -378,7 +379,8 @@ export default function PixelArtCreator(){
             </div>
             {/* Palette panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('palette')}>
+              <h2 className="font-medium mb-3 cursor-pointer flex items-center gap-2" onClick={() => toggleCollapse('palette')}>
+                <span className={`text-zinc-400 transition-transform duration-200 ${isPaletteCollapsed ? 'rotate-90' : 'rotate-0'}`}>▶</span>
                 Palette
               </h2>
               {!isPaletteCollapsed && (
@@ -402,7 +404,8 @@ export default function PixelArtCreator(){
             {/* Advanced settings panel (renamed from Dithering) */
             }
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('advanced')}>
+              <h2 className="font-medium mb-3 cursor-pointer flex items-center gap-2" onClick={() => toggleCollapse('advanced')}>
+                <span className={`text-zinc-400 transition-transform duration-200 ${isAdvancedCollapsed ? 'rotate-90' : 'rotate-0'}`}>▶</span>
                 Advanced settings
               </h2>
               {!isAdvancedCollapsed && (
@@ -473,7 +476,8 @@ export default function PixelArtCreator(){
             </div>
             {/* Color Replacement panel */}
             <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
-              <h2 className="font-medium mb-3 cursor-pointer" onClick={() => toggleCollapse('color-replacement')}>
+              <h2 className="font-medium mb-3 cursor-pointer flex items-center gap-2" onClick={() => toggleCollapse('color-replacement')}>
+                <span className={`text-zinc-400 transition-transform duration-200 ${isColorReplacementCollapsed ? 'rotate-90' : 'rotate-0'}`}>▶</span>
                 Color Replacement
               </h2>
               {!isColorReplacementCollapsed && (

@@ -212,17 +212,364 @@ export default function PixelArtRecoverer(){
   return (
     <main className="max-w-7xl mx-auto px-4 py-6 grid gap-6">
       {!imageURL && (
-        <div onDrop={onDrop} onDragOver={(e)=>e.preventDefault()} className="border-2 border-dashed border-zinc-700 rounded-2xl p-10 text-center grid place-items-center bg-zinc-900/40">
+        <div
+          onDrop={onDrop}
+          onDragOver={(e) => e.preventDefault()}
+          className="border-2 border-dashed border-zinc-700 rounded-2xl p-10 text-center grid place-items-center bg-zinc-900/40"
+        >
           <div className="space-y-4">
             <div className="text-lg">Drop an image here</div>
-            <div className="text-zinc-400 text-sm">Or click to choose a file or press Ctrl+V to paste from clipboard</div>
+            <div className="text-zinc-400 text-sm">
+              Or click to choose a file or press Ctrl+V to paste from clipboard
+            </div>
             <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 cursor-pointer">
-              <input type="file" accept="image/*" className="hidden" onChange={onSelectFile}/>
+              <input type="file" accept="image/*" className="hidden" onChange={onSelectFile} />
               <span>Choose image</span>
             </label>
-            <p className="text-xs text-zinc-500">Tip: works best if the source was scaled with nearest-neighbor</p>
+            <p className="text-xs text-zinc-500">
+              Tip: works best if the source was scaled with nearest-neighbor
+            </p>
           </div>
         </div>
-      )}{imageURL && imgEl && imgData && (<><div className="grid gap-4 md:grid-cols-3"><div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40"><h2 className="font-medium mb-3">Detection</h2><div className="grid sm:grid-cols-2 gap-3 text-sm"><div><label className="text-zinc-400">Max scale to search</label><input type="range" min={2} max={128} value={autoMaxScale} onChange={e=>setAutoMaxScale(parseInt(e.target.value))} className="w-full"/><div className="text-zinc-400">{autoMaxScale} px</div></div><div className="flex items-end"><button onClick={()=>{ if(!diffs || !imgData) return; const w=imgData.width; const h=imgData.height; const maxS=Math.min(autoMaxScale, Math.max(2, Math.floor(Math.min(w,h)/4))); const bx=detectAxis(diffs.diffX,maxS); const by=detectAxis(diffs.diffY,maxS); const result: DetectResult = { sX: bx.s, sY: by.s, dX: bx.d, dY: by.d, ratioX: bx.ratio, ratioY: by.ratio } as any; setDetected(result); setSX(result.sX); setSY(result.sY); setDX(result.dX); setDY(result.dY); }} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500">Re-detect</button></div></div>{detected && <div className="mt-3 text-xs text-zinc-400">Auto: sX {detected.sX}, dX {detected.dX}, sY {detected.sY}, dY {detected.dY}</div>}</div><div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40"><h2 className="font-medium mb-3">Tweak</h2><div className="grid sm:grid-cols-2 gap-4 text-sm"><div><label className="text-zinc-400">Scale X (px)</label><input type="range" min={1} max={128} value={sX} onChange={e=>setSX(parseInt(e.target.value))} className="w-full"/><div className="text-zinc-400">{sX}</div></div><div><label className="text-zinc-400">Offset X</label><input type="range" min={0} max={Math.max(0, sX-1)} value={dX} onChange={e=>setDX(parseInt(e.target.value))} className="w-full"/><div className="text-zinc-400">{dX}</div></div><div><label className="text-zinc-400">Scale Y (px)</label><input type="range" min={1} max={128} value={sY} onChange={e=>setSY(parseInt(e.target.value))} className="w-full"/><div className="text-zinc-400">{sY}</div></div><div><label className="text-zinc-400">Offset Y</label><input type="range" min={0} max={Math.max(0, sY-1)} value={dY} onChange={e=>setDY(parseInt(e.target.value))} className="w-full"/><div className="text-zinc-400">{dY}</div></div><div><label className="text-zinc-400">Posterize (bits per channel)</label><input type="range" min={2} max={8} value={posterizeBits} onChange={e=>setPosterizeBits(parseInt(e.target.value))} className="w-full"/><div className="text-zinc-400">{posterizeBits} bits</div></div><div className="flex items-center gap-2"><input id="grid" type="checkbox" className="accent-blue-600" checked={overlayGrid} onChange={e=>setOverlayGrid(e.target.checked)}/><label htmlFor="grid" className="text-zinc-200">Show grid overlay</label></div></div></div><div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden"><h2 className="font-medium mb-3">Palette</h2><div className="flex flex-wrap items-center gap-2 mb-3 text-xs"><label className="flex items-center gap-1 cursor-pointer select-none"><input type="checkbox" className="accent-blue-600" checked={usePalette} onChange={e=>setUsePalette(e.target.checked)}/><span className="text-zinc-300">Use palette</span></label><button onClick={applyFreeColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable only free colors">Only free colors</button><button onClick={enableAllColors} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Enable all colors">Use all colors</button><button onClick={disableAll} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700" title="Disable all colors">None</button></div><div className="grid grid-cols-8 gap-2">{FULL_PALETTE.map((hex,i)=>{ const enabled=enabledColors[i]; return (<button key={i} onClick={()=>toggleColor(i)} className={`w-6 h-6 rounded border border-zinc-700 relative group ${enabled ? '' : 'opacity-30 grayscale'} focus:outline-none focus:ring-2 focus:ring-blue-500`} style={{backgroundColor:hex}} title={hex + (enabled ? '' : ' (disabled)')}>{!enabled && <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-zinc-200">×</span>}</button>); })}</div><p className="mt-3 text-[10px] leading-snug text-zinc-400">Click colors to enable/disable them. Only enabled colors are used when building the pixelated version.</p></div></div><div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden"><div className="p-3 flex items-center justify-between text-sm text-zinc-300"><div>Before - Original</div><div>After - Rebuilt</div></div><div className="relative"><div ref={originalRef} className="w-full overflow-auto"><div className="relative inline-block w-full" style={{ aspectRatio: imgEl!.naturalWidth + ' / ' + imgEl!.naturalHeight }}><img src={imageURL} alt="original" className="block w-full h-auto select-none" draggable={false}/><canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full" style={{ imageRendering: 'pixelated' as any }}/></div></div><div className="pointer-events-none absolute inset-0"><div className="relative w-full h-full"><canvas ref={afterCanvasRef} className="absolute top-0 left-0" style={{ width: '100%', height: '100%', imageRendering: 'pixelated' as any, clipPath: `inset(0 ${100 - reveal}% 0 0)` }}/></div></div><div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur px-3 py-2 rounded-xl border border-zinc-800"><div className="flex items-center gap-2 text-xs text-zinc-300"><span>Reveal</span><input type="range" min={0} max={100} value={reveal} onChange={e=>setReveal(parseInt(e.target.value))}/><span>{reveal}%</span></div></div></div></div><div className="grid md:grid-cols-2 gap-4"><div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40"><h2 className="font-medium mb-3">Recovered base ({build?.baseImageData.width} x {build?.baseImageData.height})</h2><canvas ref={baseCanvasRef} className="block rounded-xl border border-zinc-800 mx-auto" style={{ imageRendering: 'pixelated' as any }}/></div><div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 grid content-start gap-3"><h2 className="font-medium">Export</h2><div className="flex flex-wrap gap-3"><button onClick={handleExportBase} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500">Download base PNG</button><button onClick={handleExportUpscaled} className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500">Download upscaled overlay PNG</button></div><p className="text-xs text-zinc-400">The base PNG is the clean pixel-art at 1x scale. The upscaled overlay PNG matches the original dimensions and uses nearest-neighbor.{usePalette && ` Palette constraint (${activePaletteRGB.length} colors enabled).`}</p></div></div></>)}</main>
+      )}
+      {imageURL && imgEl && imgData && (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* Detection panel */}
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
+              <h2
+                className="font-medium mb-3 cursor-pointer flex items-center gap-2"
+                onClick={() => toggleCollapse('detection')}
+              >
+                <span
+                  className={`text-zinc-400 transition-transform duration-200 ${
+                    isDetectionCollapsed ? 'rotate-90' : 'rotate-0'
+                  }`}
+                >
+                  ▶
+                </span>
+                Detection
+              </h2>
+              {!isDetectionCollapsed && (
+                <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <label className="text-zinc-400">Max scale to search</label>
+                    <input
+                      type="range"
+                      min={2}
+                      max={128}
+                      value={autoMaxScale}
+                      onChange={(e) => setAutoMaxScale(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-zinc-400">{autoMaxScale} px</div>
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={() => {
+                        if (!diffs || !imgData) return;
+                        const w = imgData.width;
+                        const h = imgData.height;
+                        const maxS = Math.min(autoMaxScale, Math.max(2, Math.floor(Math.min(w, h) / 4)));
+                        const bx = detectAxis(diffs.diffX, maxS);
+                        const by = detectAxis(diffs.diffY, maxS);
+                        const result: DetectResult = {
+                          sX: bx.s,
+                          sY: by.s,
+                          dX: bx.d,
+                          dY: by.d,
+                          ratioX: bx.ratio,
+                          ratioY: by.ratio,
+                        } as any;
+                        setDetected(result);
+                        setSX(result.sX);
+                        setSY(result.sY);
+                        setDX(result.dX);
+                        setDY(result.dY);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500"
+                    >
+                      Re-detect
+                    </button>
+                  </div>
+                </div>
+              )}
+              {detected && !isDetectionCollapsed && (
+                <div className="mt-3 text-xs text-zinc-400">
+                  Auto: sX {detected.sX}, dX {detected.dX}, sY {detected.sY}, dY {detected.dY}
+                </div>
+              )}
+            </div>
+
+            {/* Tweak panel */}
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
+              <h2
+                className="font-medium mb-3 cursor-pointer flex items-center gap-2"
+                onClick={() => toggleCollapse('tweak')}
+              >
+                <span
+                  className={`text-zinc-400 transition-transform duration-200 ${
+                    isTweakCollapsed ? 'rotate-90' : 'rotate-0'
+                  }`}
+                >
+                  ▶
+                </span>
+                Tweak
+              </h2>
+              {!isTweakCollapsed && (
+                <div className="grid sm:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <label className="text-zinc-400">Scale X (px)</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={128}
+                      value={sX}
+                      onChange={(e) => setSX(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-zinc-400">{sX}</div>
+                  </div>
+                  <div>
+                    <label className="text-zinc-400">Offset X</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(0, sX - 1)}
+                      value={dX}
+                      onChange={(e) => setDX(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-zinc-400">{dX}</div>
+                  </div>
+                  <div>
+                    <label className="text-zinc-400">Scale Y (px)</label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={128}
+                      value={sY}
+                      onChange={(e) => setSY(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-zinc-400">{sY}</div>
+                  </div>
+                  <div>
+                    <label className="text-zinc-400">Offset Y</label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(0, sY - 1)}
+                      value={dY}
+                      onChange={(e) => setDY(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-zinc-400">{dY}</div>
+                  </div>
+                  <div>
+                    <label className="text-zinc-400">Posterize (bits per channel)</label>
+                    <input
+                      type="range"
+                      min={2}
+                      max={8}
+                      value={posterizeBits}
+                      onChange={(e) => setPosterizeBits(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-zinc-400">{posterizeBits} bits</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="grid"
+                      type="checkbox"
+                      className="accent-blue-600"
+                      checked={overlayGrid}
+                      onChange={(e) => setOverlayGrid(e.target.checked)}
+                    />
+                    <label htmlFor="grid" className="text-zinc-200">
+                      Show grid overlay
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Palette panel */}
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 overflow-hidden">
+              <h2
+                className="font-medium mb-3 cursor-pointer flex items-center gap-2"
+                onClick={() => toggleCollapse('palette')}
+              >
+                <span
+                  className={`text-zinc-400 transition-transform duration-200 ${
+                    isPaletteCollapsed ? 'rotate-90' : 'rotate-0'
+                  }`}
+                >
+                  ▶
+                </span>
+                Palette
+              </h2>
+              {!isPaletteCollapsed && (
+                <div>
+                  <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        checked={usePalette}
+                        onChange={(e) => setUsePalette(e.target.checked)}
+                      />
+                      <span className="text-zinc-300">Use palette</span>
+                    </label>
+                    <button
+                      onClick={applyFreeColors}
+                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
+                      title="Enable only free colors"
+                    >
+                      Only free colors
+                    </button>
+                    <button
+                      onClick={enableAllColors}
+                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
+                      title="Enable all colors"
+                    >
+                      Use all colors
+                    </button>
+                    <button
+                      onClick={disableAll}
+                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
+                      title="Disable all colors"
+                    >
+                      None
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-8 gap-2">
+                    {FULL_PALETTE.map((hex, i) => {
+                      const enabled = enabledColors[i];
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => toggleColor(i)}
+                          className={`w-6 h-6 rounded border border-zinc-700 relative group ${
+                            enabled ? '' : 'opacity-30 grayscale'
+                          } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                          style={{ backgroundColor: hex }}
+                          title={hex + (enabled ? '' : ' (disabled)')}
+                        >
+                          {!enabled && (
+                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-zinc-200">
+                              ×
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-[10px] leading-snug text-zinc-400">
+                    Click colors to enable/disable them. Only enabled colors are used when building the pixelated version.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Before/After viewer */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+            <div className="p-3 flex items-center justify-between text-sm text-zinc-300">
+              <div>Before - Original</div>
+              <div>After - Rebuilt</div>
+            </div>
+            <div className="relative">
+              <div
+                ref={originalRef}
+                className="w-full overflow-auto"
+              >
+                <div
+                  className="relative inline-block w-full"
+                  style={{ aspectRatio: `${imgEl!.naturalWidth} / ${imgEl!.naturalHeight}` }}
+                >
+                  <img
+                    src={imageURL}
+                    alt="original"
+                    className="block w-full h-auto select-none"
+                    draggable={false}
+                  />
+                  <canvas
+                    ref={overlayCanvasRef}
+                    className="absolute inset-0 w-full h-full"
+                    style={{ imageRendering: 'pixelated' as any }}
+                  />
+                </div>
+              </div>
+              <div className="pointer-events-none absolute inset-0">
+                <div className="relative w-full h-full">
+                  <canvas
+                    ref={afterCanvasRef}
+                    className="absolute top-0 left-0"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      imageRendering: 'pixelated' as any,
+                      clipPath: `inset(0 ${100 - reveal}% 0 0)`,
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur px-3 py-2 rounded-xl border border-zinc-800">
+                <div className="flex items-center gap-2 text-xs text-zinc-300">
+                  <span>Reveal</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={reveal}
+                    onChange={(e) => setReveal(parseInt(e.target.value))}
+                  />
+                  <span>{reveal}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom panels */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40">
+              <h2 className="font-medium mb-3">
+                Recovered base ({build?.baseImageData.width} x {build?.baseImageData.height})
+              </h2>
+              <canvas
+                ref={baseCanvasRef}
+                className="block rounded-xl border border-zinc-800 mx-auto"
+                style={{ imageRendering: 'pixelated' as any }}
+              />
+            </div>
+            <div className="rounded-2xl border border-zinc-800 p-4 bg-zinc-900/40 grid content-start gap-3">
+              <h2 className="font-medium">Export</h2>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleExportBase}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500"
+                >
+                  Download base PNG
+                </button>
+                <button
+                  onClick={handleExportUpscaled}
+                  className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500"
+                >
+                  Download upscaled overlay PNG
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400">
+                The base PNG is the clean pixel-art at 1x scale. The upscaled overlay PNG matches the original dimensions and uses nearest-neighbor.
+                {usePalette && ` Palette constraint (${activePaletteRGB.length} colors enabled).`}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+      <div className="text-center text-xs text-zinc-500 py-6">
+        Create pixel-art by pixelating any image.
+      </div>
+    </main>
   );
 }
